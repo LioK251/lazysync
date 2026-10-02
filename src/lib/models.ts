@@ -1,0 +1,10 @@
+export type { Settings } from './generated/Settings';
+export type { Automation } from './generated/Automation';
+export type { StatusSnapshot } from './generated/StatusSnapshot';
+export type { RemoteRepository } from './generated/RemoteRepository';
+export type { RepositoryMapping } from './generated/RepositoryMapping';
+export type { AppError } from './generated/AppError';
+export type { Identity } from './generated/Identity';
+export type { Commit } from './generated/Commit';
+export type { FileDiff } from './generated/FileDiff';
+export type { Conflict } from './generated/Conflict';
