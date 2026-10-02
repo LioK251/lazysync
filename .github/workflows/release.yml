@@ -83,12 +83,23 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENSSL_STATIC: '1'
         with:
           releaseId: ${{ needs.prepare.outputs.release_id }}
           tagName: ${{ needs.prepare.outputs.tag }}
           releaseDraft: true
           includeUpdaterJson: false
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: Verify macOS app does not depend on Homebrew libraries
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          dependencies=$(otool -L "src-tauri/target/${{ matrix.target }}/release/bundle/macos/lazysync.app/Contents/MacOS/lazysync")
+          printf '%s\n' "$dependencies"
+          if printf '%s\n' "$dependencies" | grep -Eq '/opt/homebrew|/usr/local/opt'; then
+            echo 'Unexpected Homebrew runtime dependency in app bundle.'
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: lazysync-${{ matrix.target }}
