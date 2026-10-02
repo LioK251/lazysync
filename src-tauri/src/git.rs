@@ -421,6 +421,7 @@ pub fn safe_path(root: &Path, name: &str) -> Result<std::path::PathBuf> {
     if p.components().any(|c| !matches!(c, Component::Normal(_)))
         || name.is_empty()
         || name.contains('\\')
+        || name.contains(':')
         || p.components()
             .any(|c| c.as_os_str().to_string_lossy().eq_ignore_ascii_case(".git"))
     {

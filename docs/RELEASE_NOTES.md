@@ -1,4 +1,4 @@
-lazysync 0.1.1 adds a compact tray companion for one GitHub repository at a time.
+lazysync 0.1.2 adds a compact tray companion for one GitHub repository at a time.
 
 - PAT authentication through the native OS credential vault.
 - Remembered checkouts, empty-folder cloning, and personal private repository creation.
