@@ -18,6 +18,7 @@ impl SyncEngine<'_> {
         }
         let r = git::open(&m.folder)?;
         git::preflight(&r, m, false)?;
+        git::validate_upload_files(&r)?;
         self.identity()?;
         let id = uuid::Uuid::new_v4().to_string();
         let j = Recovery {
@@ -211,7 +212,7 @@ impl SyncEngine<'_> {
                     self.finish_step(&r, &mut j, "fetch")?;
                 }
                 "fetch" => {
-                    git::fetch(&r, &m.branch, self.token)?;
+                    git::fetch_with_progress(&r, &m.branch, self.token, &mut *emit)?;
                     self.check(&r, &j)?;
                     self.finish_step(&r, &mut j, "integrate")?;
                 }
@@ -329,10 +330,12 @@ impl SyncEngine<'_> {
                 }
                 "push" => {
                     if git::head(&r).is_some() {
-                        if let Err(e) = git::push(&r, &m.branch, self.token) {
+                        if let Err(e) =
+                            git::push_with_progress(&r, &m.branch, self.token, &mut *emit)
+                        {
                             if e.code == "pushRejected" && j.retries < 2 {
                                 self.check(&r, &j)?;
-                                git::fetch(&r, &m.branch, self.token)?;
+                                git::fetch_with_progress(&r, &m.branch, self.token, &mut *emit)?;
                                 self.check(&r, &j)?;
                                 j.retries += 1;
                                 self.finish_step(&r, &mut j, "retryIntegrate")?;
@@ -346,7 +349,7 @@ impl SyncEngine<'_> {
                 }
                 "verify" => {
                     if let Some(head) = git::head(&r) {
-                        git::fetch(&r, &m.branch, self.token)?;
+                        git::fetch_with_progress(&r, &m.branch, self.token, &mut *emit)?;
                         self.check(&r, &j)?;
                         let upstream =
                             r.refname_to_id(&format!("refs/remotes/origin/{}", m.branch))?;

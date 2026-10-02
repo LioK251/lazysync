@@ -34,11 +34,11 @@ async fn work<T: Send + 'static>(
 }
 #[tauri::command]
 async fn get_settings(w: State<'_, Worker>) -> Result<Settings> {
-    work(&w, false, |s| Ok(s.settings.clone())).await
+    Ok(w.settings())
 }
 #[tauri::command]
 async fn get_status(w: State<'_, Worker>) -> Result<StatusSnapshot> {
-    work(&w, false, |s| Ok(s.status.clone())).await
+    Ok(w.status())
 }
 #[tauri::command]
 async fn authenticate(w: State<'_, Worker>, token: String) -> Result<Identity> {
@@ -332,6 +332,7 @@ fn show(app: &tauri::AppHandle, position: Option<tauri::PhysicalPosition<f64>>) 
     }
 }
 pub fn run() {
+    git::configure_network_timeouts().expect("initialize Git network timeouts");
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app,_,_|show(app,None)))
         .plugin(tauri_plugin_dialog::init()).plugin(tauri_plugin_notification::init())

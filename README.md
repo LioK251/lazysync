@@ -26,6 +26,8 @@ Classic PATs need `repo` scope for private repositories. Fine-grained PATs need 
 
 Only the active checkout is watched. Local status is checked every 10 seconds; real fetches happen every 60 seconds and during sync. Drag the top bar to move lazysync. Clicking another app keeps it open. The close button hides it; Escape closes a dialog or the difference checker before hiding the compact window. Quit is available in the tray menu. Changing branches externally pauses sync; Settings offers explicit branch reconfirmation, subject to upstream validation.
 
+Background checks use file metadata for automation, with no content hashing while automation is Off. Watcher events are coalesced and debounced; manual actions can queue behind a routine scan while status stays readable. Actual sync still uses full content fingerprints to detect unexpected edits safely. Git connections have a 15-second connect limit and a 30-second stalled-network limit; active uploads display preparation and transfer progress.
+
 ## Difference checker and ignored files
 
 The interface uses dark gray surfaces and white controls. **Difference checker** expands the window to the left, keeping sync controls on the right. Opening or refreshing it fetches the selected GitHub branch, then compares that cloud version with the working folder, including unpushed commits and untracked files that are not ignored. The displayed cloud commit stays pinned until you refresh. A failed fetch shows an error and retry control; cached files are not presented as a fresh cloud comparison.
@@ -37,6 +39,8 @@ Select a file to see Local and Cloud side by side, with aligned line numbers, ch
 In **Create private repository → Ignored files & folders**, choose files/folders or add patterns before creation. In **Settings → Repository settings · ignored files**, browse the active folder, use presets, or edit one pattern per line and select **Save ignore rules**. A checked file produces a rooted, escaped rule for that exact path. Existing `.gitignore` rules and their order are preserved outside the labeled lazysync section. External edits require reloading before saving. Partial creation saves selected rules so setup can resume.
 
 Git ignore rules affect untracked files. Already tracked files remain tracked, and these controls do not delete files or silently remove them from history. Review tracked files in a Git client when you need to stop tracking them. Ignore changes become part of the next sync; recovery blocks editing ignore settings.
+
+GitHub blocks files larger than 100 MiB. Sync checks included files before writing recovery state or changing the checkout, names oversized paths, and asks you to exclude them. Use the Dependencies and Build output presets to keep generated folders local. Existing tracked files must be untracked in a Git client; ignoring them alone does not remove them from Git.
 
 ## Safe sync and recovery
 
@@ -74,7 +78,7 @@ Rust tests use temporary checkouts and bare remotes; GitHub requests use a local
 
 Windows: `npm run tauri build -- --bundles nsis,msi`. macOS: `npm run tauri build -- --bundles dmg`. Native bundles live in `src-tauri/target/release/bundle`. Icons are generated with Tauri tooling; the existing root `test.rs` is preserved.
 
-Tag `v0.2.1` to run release CI. It verifies repository privacy, creates a draft release, builds Windows x64 `.exe`/`.msi` and Apple Silicon/Intel `.dmg`, attaches artifacts, and publishes only after every platform succeeds. The repository is never made public. See [Tauri distribution](https://v2.tauri.app/distribute/) and [Tauri GitHub Action](https://github.com/tauri-apps/tauri-action).
+Tag `v0.2.2` to run release CI. It verifies repository privacy, creates a draft release, builds Windows x64 `.exe`/`.msi` and Apple Silicon/Intel `.dmg`, attaches artifacts, and publishes only after every platform succeeds. The repository is never made public. See [Tauri distribution](https://v2.tauri.app/distribute/) and [Tauri GitHub Action](https://github.com/tauri-apps/tauri-action).
 
 ## Optional signing
 

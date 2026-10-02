@@ -7,6 +7,46 @@ use std::{
     process::Command,
 };
 
+/// Call once at process startup, before Tauri starts threads or repository operations.
+pub fn configure_network_timeouts() -> Result<()> {
+    // libgit2's timeout options are process globals and must be initialized before threads exist.
+    unsafe {
+        git2::opts::set_server_connect_timeout_in_milliseconds(15000)?;
+        git2::opts::set_server_timeout_in_milliseconds(30000)?;
+    }
+    Ok(())
+}
+
+pub fn validate_upload_files(r: &Repository) -> Result<()> {
+    let paths = command(
+        r.workdir().unwrap(),
+        &[
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ],
+        None,
+    )?;
+    let mut large = vec![];
+    for path in paths.split(|b| *b == 0).filter(|p| !p.is_empty()) {
+        let name = String::from_utf8_lossy(path);
+        if let Ok(metadata) = fs::symlink_metadata(r.workdir().unwrap().join(name.as_ref())) {
+            if metadata.is_file()
+                && metadata.len() > 100 * 1024 * 1024
+                && !large.contains(&name.to_string())
+            {
+                large.push(name.to_string());
+            }
+        }
+    }
+    if !large.is_empty() {
+        return Err(AppError::new("largeFiles", format!("{} included file(s) exceed GitHub's 100 MiB limit: {}{}", large.len(), large.iter().take(5).cloned().collect::<Vec<_>>().join(", "), if large.len() > 5 { ", …" } else { "" }), "Open Settings → Repository settings → ignored files and exclude those paths before syncing. Already tracked files must be untracked in a Git client. No files have been uploaded or removed."));
+    }
+    Ok(())
+}
+
 pub fn command(folder: &Path, args: &[&str], settings: Option<&Settings>) -> Result<Vec<u8>> {
     // An empty hooksPath can resolve to the checkout root. Use a real empty directory.
     let hooks = tempfile::tempdir()?;
@@ -277,8 +317,28 @@ pub fn callbacks(token: &str) -> RemoteCallbacks<'_> {
     cb
 }
 pub fn fetch(r: &Repository, b: &str, token: &str) -> Result<()> {
+    fetch_with_progress(r, b, token, |_| {})
+}
+pub fn fetch_with_progress(
+    r: &Repository,
+    b: &str,
+    token: &str,
+    mut emit: impl FnMut(&str),
+) -> Result<()> {
     let mut o = FetchOptions::new();
-    o.remote_callbacks(callbacks(token));
+    let mut cb = callbacks(token);
+    let mut last = std::time::Instant::now() - std::time::Duration::from_secs(1);
+    cb.transfer_progress(move |p| {
+        if last.elapsed() >= std::time::Duration::from_millis(250)
+            || p.received_objects() == p.total_objects()
+        {
+            let percent = p.received_objects() * 100 / p.total_objects().max(1);
+            emit(&format!("fetch:Receiving cloud changes · {percent}%"));
+            last = std::time::Instant::now();
+        }
+        true
+    });
+    o.remote_callbacks(cb);
     o.prune(git2::FetchPrune::On);
     // Fetch all branches to distinguish an empty/missing target from a network failure.
     r.find_remote("origin")?
@@ -289,8 +349,37 @@ pub fn fetch(r: &Repository, b: &str, token: &str) -> Result<()> {
     Ok(())
 }
 pub fn push(r: &Repository, b: &str, token: &str) -> Result<()> {
+    push_with_progress(r, b, token, |_| {})
+}
+pub fn push_with_progress(
+    r: &Repository,
+    b: &str,
+    token: &str,
+    emit: impl FnMut(&str),
+) -> Result<()> {
     let mut rejection = None;
+    let progress = std::cell::RefCell::new(emit);
+    let last = std::cell::Cell::new(std::time::Instant::now() - std::time::Duration::from_secs(1));
     let mut cb = callbacks(token);
+    cb.pack_progress(|_, current, total| {
+        if last.get().elapsed() >= std::time::Duration::from_millis(250) || current == total {
+            (progress.borrow_mut())(&format!(
+                "push:Preparing upload · {}%",
+                current * 100 / total.max(1)
+            ));
+            last.set(std::time::Instant::now());
+        }
+    });
+    cb.push_transfer_progress(|current, total, bytes| {
+        if last.get().elapsed() >= std::time::Duration::from_millis(250) || current == total {
+            (progress.borrow_mut())(&format!(
+                "push:Uploading · {}% · {:.1} MiB",
+                current * 100 / total.max(1),
+                bytes as f64 / 1048576.0
+            ));
+            last.set(std::time::Instant::now());
+        }
+    });
     cb.push_update_reference(|_, msg| {
         if let Some(m) = msg {
             rejection = Some(m.to_owned());
@@ -354,6 +443,53 @@ pub fn ahead_behind(r: &Repository, b: &str) -> Result<(u32, u32)> {
 }
 pub fn fingerprint(r: &Repository) -> Result<String> {
     fingerprint_parts(r, true, None)
+}
+/// Watcher observations use metadata; full content hashes are reserved for recovery boundaries.
+pub fn observation_fingerprint(r: &Repository) -> Result<String> {
+    let mut digest = Sha256::new();
+    digest.update(head(r).unwrap_or_default());
+    digest.update(branch(r).unwrap_or_else(|_| "detached".into()));
+    let paths = command(
+        r.workdir().unwrap(),
+        &[
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ],
+        None,
+    )?;
+    let mut paths: Vec<_> = paths.split(|b| *b == 0).filter(|p| !p.is_empty()).collect();
+    paths.sort();
+    paths.dedup();
+    for path in paths {
+        digest.update(path);
+        let path = r
+            .workdir()
+            .unwrap()
+            .join(String::from_utf8_lossy(path).as_ref());
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) => {
+                digest.update(metadata.len().to_le_bytes());
+                digest.update([
+                    metadata.is_dir() as u8,
+                    metadata.file_type().is_symlink() as u8,
+                ]);
+                if let Ok(time) = metadata.modified().and_then(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .map_err(std::io::Error::other)
+                }) {
+                    digest.update(time.as_nanos().to_le_bytes());
+                }
+                if metadata.file_type().is_symlink() {
+                    digest.update(fs::read_link(path)?.to_string_lossy().as_bytes());
+                }
+            }
+            Err(_) => digest.update(b"missing"),
+        }
+    }
+    Ok(format!("{:x}", digest.finalize()))
 }
 pub fn worktree_fingerprint(r: &Repository) -> Result<String> {
     fingerprint_parts(r, false, None)

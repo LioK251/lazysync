@@ -530,6 +530,160 @@ fn github_identity_and_token_not_in_error() {
 }
 
 struct MemoryVault(std::sync::Mutex<String>);
+
+#[test]
+#[ignore = "read-only diagnostic; requires LAZYSYNC_DIAGNOSTIC_FOLDER"]
+fn selected_folder_scan_diagnostic() {
+    let folder = std::env::var("LAZYSYNC_DIAGNOSTIC_FOLDER").expect("set the diagnostic folder");
+    let r = git::open(&folder).unwrap();
+    let start = Instant::now();
+    let counts = git::counts(&r).unwrap();
+    println!("Status scan: {:?}; changes: {:?}", start.elapsed(), counts);
+    let start = Instant::now();
+    git::observation_fingerprint(&r).unwrap();
+    println!("Metadata observation: {:?}", start.elapsed());
+    let start = Instant::now();
+    let upload = git::validate_upload_files(&r);
+    println!("Upload preflight: {:?}; {:?}", start.elapsed(), upload);
+}
+
+#[test]
+fn background_scan_accepts_manual_work_and_keeps_snapshots_readable() {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Mutex,
+    };
+    let f = Fixture::new(true);
+    let mut settings = f.settings.clone();
+    settings.repositories = vec![f.mapping.clone()];
+    settings.active_id = Some("1".into());
+    settings.status_interval_secs = 1;
+    f.storage.save_settings(&settings).unwrap();
+    let armed = Arc::new(AtomicBool::new(false));
+    let block_once = armed.clone();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    let service = crate::runtime::Service::new(
+        f.storage.clone(),
+        Arc::new(MemoryVault(Mutex::new("secret".into()))),
+        GitHub::new().unwrap(),
+        Arc::new(move |_| {
+            if block_once.swap(false, Ordering::SeqCst) {
+                entered_tx.send(()).unwrap();
+                release_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(10))
+                    .unwrap();
+            }
+        }),
+    )
+    .unwrap();
+    let worker = crate::runtime::Worker::new(service);
+    armed.store(true, Ordering::SeqCst);
+    entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(
+        !worker.busy.load(Ordering::SeqCst),
+        "a background scan must not reserve manual operations"
+    );
+    assert_eq!(worker.status().repository_id.as_deref(), Some("1"));
+    assert_eq!(worker.settings().active_id.as_deref(), Some("1"));
+    let manual = worker.clone();
+    let queued =
+        std::thread::spawn(move || manual.call(true, |s| Ok(s.settings.active_id.clone())));
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !worker.busy.load(Ordering::SeqCst) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(worker.busy.load(Ordering::SeqCst));
+    assert_eq!(worker.call(true, |_| Ok(())).unwrap_err().code, "busy");
+    release_tx.send(()).unwrap();
+    assert_eq!(queued.join().unwrap().unwrap().as_deref(), Some("1"));
+    assert!(!worker.busy.load(Ordering::SeqCst));
+}
+
+#[test]
+fn worker_panic_releases_busy_and_preserves_recovery() {
+    let f = Fixture::new(true);
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        f.engine().start(&f.mapping, |phase| {
+            if phase == "fetch" {
+                panic!("interrupted sync");
+            }
+        })
+    }));
+    let before = fs::read(f.storage.root.join("recovery.json")).unwrap();
+    let service = crate::runtime::Service::new(
+        f.storage.clone(),
+        Arc::new(MemoryVault(std::sync::Mutex::new("secret".into()))),
+        GitHub::new().unwrap(),
+        Arc::new(|_| {}),
+    )
+    .unwrap();
+    let worker = crate::runtime::Worker::new(service);
+    assert_eq!(
+        worker
+            .call::<()>(true, |_| panic!("operation panic"))
+            .unwrap_err()
+            .code,
+        "workerPanic"
+    );
+    assert!(!worker.busy.load(std::sync::atomic::Ordering::SeqCst));
+    assert_eq!(worker.status().phase, "paused");
+    assert!(worker.status().recovery);
+    worker.call(true, |_| Ok(())).unwrap();
+    assert_eq!(
+        fs::read(f.storage.root.join("recovery.json")).unwrap(),
+        before
+    );
+}
+
+#[test]
+fn oversized_upload_is_blocked_before_recovery_and_can_be_ignored() {
+    let f = Fixture::new(false);
+    let path = Path::new(&f.folder).join("oversized.zip");
+    fs::File::create(&path)
+        .unwrap()
+        .set_len(100 * 1024 * 1024 + 1)
+        .unwrap();
+    let error = f.engine().start(&f.mapping, |_| {}).unwrap_err();
+    assert_eq!(error.code, "largeFiles");
+    assert!(error.message.contains("oversized.zip"));
+    assert!(f.storage.journal().unwrap().is_none());
+    assert!(git::head(&git::open(&f.folder).unwrap()).is_none());
+    assert_eq!(fs::metadata(&path).unwrap().len(), 100 * 1024 * 1024 + 1);
+    f.write(".gitignore", b"oversized.zip\n");
+    f.write("small.txt", b"upload me\n");
+    f.engine().start(&f.mapping, |_| {}).unwrap();
+    assert!(path.exists());
+    assert!(!git::dirty(&git::open(&f.folder).unwrap()).unwrap());
+}
+
+#[test]
+fn metadata_observations_detect_relevant_changes_and_skip_ignored_files() {
+    let f = Fixture::new(true);
+    f.write(".gitignore", b"ignored/\n");
+    fs::create_dir(Path::new(&f.folder).join("ignored")).unwrap();
+    let r = git::open(&f.folder).unwrap();
+    let before = git::observation_fingerprint(&r).unwrap();
+    f.write("ignored/cache", b"cache contents");
+    assert_eq!(before, git::observation_fingerprint(&r).unwrap());
+    // Large sparse content is observed from its metadata, never streamed into the poll hash.
+    fs::File::create(Path::new(&f.folder).join("large.bin"))
+        .unwrap()
+        .set_len(1024 * 1024 * 1024)
+        .unwrap();
+    let added = git::observation_fingerprint(&r).unwrap();
+    assert_ne!(before, added);
+    fs::remove_file(Path::new(&f.folder).join("large.bin")).unwrap();
+    assert_eq!(before, git::observation_fingerprint(&r).unwrap());
+    f.write("notes.txt", b"changed contents\n");
+    let modified = git::observation_fingerprint(&r).unwrap();
+    assert_ne!(before, modified);
+    fs::remove_file(Path::new(&f.folder).join("notes.txt")).unwrap();
+    assert_ne!(modified, git::observation_fingerprint(&r).unwrap());
+}
 #[test]
 fn checkout_root_hook_is_never_executed() {
     let f = Fixture::new(true);

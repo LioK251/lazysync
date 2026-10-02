@@ -10,7 +10,7 @@ use crate::{
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc,
+        mpsc, Arc, RwLock,
     },
     time::{Duration, Instant},
 };
@@ -27,6 +27,7 @@ pub struct Service {
     last_change: Option<Instant>,
     last_scan: Instant,
     last_fetch: Instant,
+    last_watch_event: Option<Instant>,
     auto_paused: bool,
 }
 impl Service {
@@ -50,6 +51,7 @@ impl Service {
             last_change: None,
             last_scan: Instant::now() - Duration::from_secs(10),
             last_fetch: Instant::now() - Duration::from_secs(60),
+            last_watch_event: None,
             auto_paused: recovery,
         };
         if let Err(e) = s.scan() {
@@ -209,6 +211,7 @@ impl Service {
         self.watcher = None;
         self.observed.clear();
         self.last_change = None;
+        self.last_watch_event = None;
         self.last_fetch = Instant::now() - Duration::from_secs(60);
         self.auto_paused = false;
         self.status.error = None;
@@ -262,6 +265,7 @@ impl Service {
         self.watcher = None;
         self.observed.clear();
         self.last_change = None;
+        self.last_watch_event = None;
         self.last_fetch = Instant::now() - Duration::from_secs(60);
         self.status.error = None;
         self.auto_paused = false;
@@ -375,6 +379,15 @@ impl Service {
         let mapping = self.active()?;
         let result =
             crate::ignore::save(std::path::Path::new(&mapping.folder), patterns, &revision)?;
+        if self
+            .status
+            .error
+            .as_ref()
+            .is_some_and(|e| e.code == "largeFiles")
+        {
+            self.status.error = None;
+            self.auto_paused = false;
+        }
         self.scan()?;
         Ok(result)
     }
@@ -395,6 +408,25 @@ impl Service {
         self.remember(updated)
     }
     pub fn sync(&mut self, resume: bool) -> Result<StatusSnapshot> {
+        self.status.phase = "validating".into();
+        self.status.label = "Checking repository access".into();
+        self.publish();
+        let result = self.sync_inner(resume);
+        if let Err(e) = &result {
+            self.auto_paused = true;
+            self.status.error = Some(e.clone());
+            self.status.phase = "paused".into();
+            self.status.label = "Sync needs attention".into();
+            if ["network", "git", "authentication"].contains(&e.code.as_str()) {
+                self.status.connectivity = "unavailable".into();
+            }
+            if self.scan().is_err() {
+                self.publish();
+            }
+        }
+        result
+    }
+    fn sync_inner(&mut self, resume: bool) -> Result<StatusSnapshot> {
         let m = self.active()?;
         let token = self.vault.get()?;
         // Validate remote access before preserving or modifying local files.
@@ -408,12 +440,25 @@ impl Service {
         let emit = self.emit.clone();
         let mut progress = |phase: &str| {
             status.sequence = status.sequence.wrapping_add(1);
-            status.phase = phase.into();
-            status.label = if phase == "idle" {
-                "All changes synced".into()
-            } else {
-                format!("Syncing · {phase}")
-            };
+            let (stage, detail) = phase
+                .split_once(':')
+                .map_or((phase, None), |(stage, detail)| (stage, Some(detail)));
+            status.phase = stage.into();
+            status.label = detail
+                .unwrap_or(match stage {
+                    "idle" => "All changes synced",
+                    "backup" => "Backing up local files",
+                    "stash" => "Preserving local changes",
+                    "fetch" | "retryFetch" => "Fetching cloud changes",
+                    "integrate" | "retryIntegrate" => "Integrating cloud changes",
+                    "apply" => "Restoring local changes",
+                    "commit" => "Committing local changes",
+                    "push" => "Preparing upload",
+                    "verify" => "Verifying upload",
+                    "cleanup" => "Finishing sync",
+                    _ => "Syncing",
+                })
+                .into();
             status.recovery = phase != "idle";
             (emit)(status.clone());
         };
@@ -428,7 +473,7 @@ impl Service {
         }
         self.last_change = None;
         self.observed = git::open(&m.folder)
-            .and_then(|r| git::fingerprint(&r))
+            .and_then(|r| git::observation_fingerprint(&r))
             .unwrap_or_default();
         match result {
             Ok(()) => {
@@ -447,14 +492,6 @@ impl Service {
                 self.auto_paused = false;
             }
             Err(e) => {
-                self.auto_paused = true;
-                self.status.error = Some(e.clone());
-                self.status.phase = "paused".into();
-                self.status.label = "Sync needs attention".into();
-                if ["network", "git", "authentication"].contains(&e.code.as_str()) {
-                    self.status.connectivity = "unavailable".into();
-                }
-                let _ = self.scan();
                 return Err(e);
             }
         }
@@ -462,6 +499,9 @@ impl Service {
         Ok(self.status.clone())
     }
     pub fn tick(&mut self) -> Result<()> {
+        self.tick_with_priority(&AtomicBool::new(false))
+    }
+    fn tick_with_priority(&mut self, manual_pending: &AtomicBool) -> Result<()> {
         let Ok(m) = self.active() else {
             return Ok(());
         };
@@ -470,22 +510,32 @@ impl Service {
         }
         let event = self.watcher.as_ref().is_some_and(|w| w.changed());
         let now = Instant::now();
+        if event {
+            self.last_watch_event = Some(now);
+        }
         let due = now.duration_since(self.last_scan)
             >= Duration::from_secs(self.settings.status_interval_secs.max(1) as u64);
-        if event || due {
+        let debounced = self
+            .last_watch_event
+            .is_some_and(|last| now.duration_since(last) >= Duration::from_secs(2));
+        if debounced || due {
             let r = git::open(&m.folder)?;
-            let fp = git::fingerprint(&r)?;
-            if fp != self.observed {
-                self.observed = fp;
-                if git::dirty(&r)? {
-                    self.last_change = Some(now);
+            if self.settings.automation != Automation::Off {
+                let fp = git::observation_fingerprint(&r)?;
+                if fp != self.observed {
+                    self.observed = fp;
+                    if git::dirty(&r)? {
+                        self.last_change = Some(self.last_watch_event.unwrap_or(now));
+                    }
                 }
-            } // ignored and sync-generated changes do not restart idle timer
-            if due || event {
-                self.scan()?;
             }
+            self.last_watch_event = None;
+            self.scan()?;
         }
         if self.storage.journal()?.is_some() || self.auto_paused {
+            return Ok(());
+        }
+        if manual_pending.load(Ordering::SeqCst) {
             return Ok(());
         }
         if now.duration_since(self.last_fetch)
@@ -506,7 +556,9 @@ impl Service {
             }
             self.scan()?;
         }
-        if automation_due(&self.settings.automation, self.last_change, now) {
+        if !manual_pending.load(Ordering::SeqCst)
+            && automation_due(&self.settings.automation, self.last_change, now)
+        {
             self.sync(false)?;
         }
         Ok(())
@@ -531,6 +583,18 @@ impl Service {
         self.scan()?;
         Ok(self.status.clone())
     }
+    fn worker_panic(&mut self) {
+        self.auto_paused = true;
+        self.status.phase = "paused".into();
+        self.status.label = "Operation interrupted".into();
+        self.status.recovery = self.storage.journal().ok().flatten().is_some();
+        self.status.error = Some(AppError::new(
+            "workerPanic",
+            "The repository operation was interrupted.",
+            "Review recovery before retrying. Your files and backups are preserved.",
+        ));
+        self.publish();
+    }
 }
 
 type Job = Box<dyn FnOnce(&mut Service) + Send>;
@@ -538,36 +602,64 @@ type Job = Box<dyn FnOnce(&mut Service) + Send>;
 pub struct Worker {
     tx: mpsc::Sender<Job>,
     pub busy: Arc<AtomicBool>,
+    status: Arc<RwLock<StatusSnapshot>>,
+    settings: Arc<RwLock<Settings>>,
+}
+struct BusyGuard(Arc<AtomicBool>);
+impl Drop for BusyGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
 }
 impl Worker {
-    pub fn new(service: Service) -> Self {
+    pub fn new(mut service: Service) -> Self {
         let (tx, rx) = mpsc::channel::<Job>();
         let busy = Arc::new(AtomicBool::new(false));
+        let status = Arc::new(RwLock::new(service.status.clone()));
+        let settings = Arc::new(RwLock::new(service.settings.clone()));
+        let snapshot = status.clone();
+        let emit = service.emit.clone();
+        service.emit = Arc::new(move |next| {
+            *snapshot.write().unwrap_or_else(|p| p.into_inner()) = next.clone();
+            emit(next);
+        });
+        let worker_settings = settings.clone();
         std::thread::Builder::new()
             .name("lazysync-repository".into())
             .spawn(move || {
                 let mut service = service;
                 while let Ok(job) = rx.recv() {
-                    job(&mut service);
+                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(&mut service)))
+                        .is_err()
+                    {
+                        service.worker_panic();
+                    }
+                    *worker_settings.write().unwrap_or_else(|p| p.into_inner()) =
+                        service.settings.clone();
                 }
             })
             .expect("repository worker");
         let tick_tx = tx.clone();
         let tick_busy = busy.clone();
+        let tick_pending = Arc::new(AtomicBool::new(false));
         std::thread::spawn(move || loop {
             std::thread::sleep(Duration::from_secs(1));
-            if tick_busy
-                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
+            if !tick_busy.load(Ordering::SeqCst)
+                && tick_pending
+                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok()
             {
-                let flag = tick_busy.clone();
+                let guard = BusyGuard(tick_pending.clone());
+                let manual = tick_busy.clone();
                 if tick_tx
                     .send(Box::new(move |s| {
-                        if let Err(e) = s.tick() {
-                            s.status.error = Some(e);
-                            s.publish();
+                        let _guard = guard;
+                        if !manual.load(Ordering::SeqCst) {
+                            if let Err(e) = s.tick_with_priority(&manual) {
+                                s.status.error = Some(e);
+                                s.publish();
+                            }
                         }
-                        flag.store(false, Ordering::SeqCst);
                     }))
                     .is_err()
                 {
@@ -575,7 +667,24 @@ impl Worker {
                 }
             }
         });
-        Self { tx, busy }
+        Self {
+            tx,
+            busy,
+            status,
+            settings,
+        }
+    }
+    pub fn status(&self) -> StatusSnapshot {
+        self.status
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+    pub fn settings(&self) -> Settings {
+        self.settings
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
     pub fn call<T: Send + 'static>(
         &self,
@@ -595,13 +704,18 @@ impl Worker {
             ));
         }
         let (tx, rx) = mpsc::channel();
-        let busy = self.busy.clone();
+        let guard = mutate.then(|| BusyGuard(self.busy.clone()));
+        let settings = self.settings.clone();
         self.tx
             .send(Box::new(move |s| {
-                let result = f(s);
-                if mutate {
-                    busy.store(false, Ordering::SeqCst);
-                }
+                let guard = guard;
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(s)))
+                    .unwrap_or_else(|_| {
+                        s.worker_panic();
+                        Err(s.status.error.clone().unwrap())
+                    });
+                *settings.write().unwrap_or_else(|p| p.into_inner()) = s.settings.clone();
+                drop(guard);
                 let _ = tx.send(result);
             }))
             .map_err(|_| {

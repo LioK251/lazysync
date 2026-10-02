@@ -64,9 +64,11 @@
       await refresh();
     } catch (e) {
       error = errorOf(e);
-      try {
-        await refresh();
-      } catch {}
+      if (error.code !== 'busy') {
+        try {
+          await refresh();
+        } catch {}
+      }
     } finally {
       busy = false;
     }
