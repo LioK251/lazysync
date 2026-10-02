@@ -3,6 +3,7 @@ pub mod credentials;
 pub mod desktop;
 pub mod git;
 pub mod github;
+pub mod ignore;
 pub mod models;
 pub mod runtime;
 pub mod storage;

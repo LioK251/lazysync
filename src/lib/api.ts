@@ -11,6 +11,10 @@ import type {
   FileDiff,
   Conflict,
   Identity,
+  ComparisonList,
+  FileComparison,
+  IgnoreSettings,
+  FolderEntry,
 } from './models';
 type Commands = {
   get_settings: [undefined, Settings];
@@ -30,7 +34,12 @@ type Commands = {
   clone_repository: [{ remote: RemoteRepository; folder: string }, Settings];
   select_repository: [{ id: string }, Settings];
   create_repository: [
-    { name: string; description: string; folder: string },
+    {
+      name: string;
+      description: string;
+      folder: string;
+      ignorePatterns: string[];
+    },
     Settings,
   ];
   abandon_setup: [undefined, Settings];
@@ -39,6 +48,21 @@ type Commands = {
   continue_sync: [undefined, StatusSnapshot];
   get_history: [{ page: number }, Commit[]];
   get_diffs: [{ oid: string | null }, FileDiff[]];
+  get_comparison_files: [undefined, ComparisonList];
+  get_file_comparison: [
+    { path: string; cloudOid: string | null },
+    FileComparison,
+  ];
+  get_ignore_settings: [{ folder: string | null }, IgnoreSettings];
+  get_folder_entries: [
+    { folder: string | null; directory: string },
+    FolderEntry[],
+  ];
+  save_ignore_settings: [
+    { patterns: string[]; revision: string },
+    IgnoreSettings,
+  ];
+  set_comparison_open: [{ open: boolean }, void];
   get_conflicts: [undefined, Conflict[]];
   resolve_conflict: [
     { path: string; choice: 'local' | 'remote' | 'edited' },

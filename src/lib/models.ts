@@ -8,3 +8,7 @@ export type { Identity } from './generated/Identity';
 export type { Commit } from './generated/Commit';
 export type { FileDiff } from './generated/FileDiff';
 export type { Conflict } from './generated/Conflict';
+export type { ComparisonList } from './generated/ComparisonList';
+export type { FileComparison } from './generated/FileComparison';
+export type { IgnoreSettings } from './generated/IgnoreSettings';
+export type { FolderEntry } from './generated/FolderEntry';

@@ -28,11 +28,11 @@
   }}
   aria-label={title}
 >
-  <header class="panel-header">
+  <header class="panel-header" data-tauri-drag-region>
     <button class="icon-button" onclick={onclose} aria-label="Back"
       ><IconArrowLeft size={18} /></button
     >
-    <h2>{title}</h2>
+    <h2 data-tauri-drag-region>{title}</h2>
   </header>
   <div class="panel-body">{@render children()}</div>
 </dialog>

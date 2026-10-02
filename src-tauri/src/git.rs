@@ -279,6 +279,7 @@ pub fn callbacks(token: &str) -> RemoteCallbacks<'_> {
 pub fn fetch(r: &Repository, b: &str, token: &str) -> Result<()> {
     let mut o = FetchOptions::new();
     o.remote_callbacks(callbacks(token));
+    o.prune(git2::FetchPrune::On);
     // Fetch all branches to distinguish an empty/missing target from a network failure.
     r.find_remote("origin")?
         .fetch(&["+refs/heads/*:refs/remotes/origin/*"], Some(&mut o), None)?;
@@ -605,4 +606,120 @@ pub fn write_resolution(r: &Repository, name: &str, bytes: Option<&[u8]>) -> Res
         command(r.workdir().unwrap(), &["add", "-A", "--", name], None)?;
     }
     Ok(())
+}
+
+pub fn comparison_files(r: &Repository, branch: &str) -> Result<ComparisonList> {
+    let tree = r
+        .find_reference(&format!("refs/remotes/origin/{branch}"))
+        .ok()
+        .map(|h| h.peel_to_tree())
+        .transpose()?;
+    let mut opts = git2::DiffOptions::new();
+    opts.include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .include_typechange(true);
+    let diff = r.diff_tree_to_workdir_with_index(tree.as_ref(), Some(&mut opts))?;
+    let truncated = diff.deltas().len() > 500;
+    let files = diff
+        .deltas()
+        .take(500)
+        .filter_map(|delta| {
+            let path = delta
+                .new_file()
+                .path()
+                .or_else(|| delta.old_file().path())?;
+            Some(ComparisonFile {
+                path: path.to_string_lossy().into_owned(),
+                status: match delta.status() {
+                    git2::Delta::Added | git2::Delta::Untracked => "localOnly",
+                    git2::Delta::Deleted => "cloudOnly",
+                    _ => "modified",
+                }
+                .into(),
+            })
+        })
+        .collect();
+    let cloud_oid = r
+        .find_reference(&format!("refs/remotes/origin/{branch}"))
+        .ok()
+        .and_then(|h| h.target())
+        .map(|o| o.to_string());
+    Ok(ComparisonList {
+        files,
+        cloud_oid,
+        branch: branch.into(),
+        checked_at: chrono::Utc::now().to_rfc3339(),
+        truncated,
+    })
+}
+pub fn file_comparison(
+    r: &Repository,
+    path: &str,
+    cloud_oid: Option<&str>,
+) -> Result<FileComparison> {
+    use std::io::Read;
+    let local_path = safe_path(
+        r.workdir().ok_or_else(|| {
+            AppError::new(
+                "bare",
+                "A working folder is required.",
+                "Connect a checkout.",
+            )
+        })?,
+        path,
+    )?;
+    let local_bytes = match fs::File::open(local_path) {
+        Ok(file) => {
+            let mut bytes = vec![];
+            file.take(65537).read_to_end(&mut bytes)?;
+            Some(bytes)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e.into()),
+    };
+    let cloud_bytes = if let Some(oid) = cloud_oid {
+        let tree = r.find_commit(Oid::from_str(oid)?)?.tree()?;
+        match tree.get_path(Path::new(path)) {
+            Ok(entry) => {
+                if entry.kind() != Some(git2::ObjectType::Blob) || entry.filemode() == 0o120000 {
+                    return Err(AppError::new(
+                        "comparisonType",
+                        "This path is a submodule or symbolic link.",
+                        "Compare it in your Git client.",
+                    ));
+                }
+                let blob = r.find_blob(entry.id())?;
+                Some(blob.content()[..blob.size().min(65537)].to_vec())
+            }
+            Err(e) if e.code() == git2::ErrorCode::NotFound => None,
+            Err(e) => return Err(e.into()),
+        }
+    } else {
+        None
+    };
+    // Truncated UTF-8 previews can end inside a codepoint; do not label that binary.
+    let binary = [&local_bytes, &cloud_bytes]
+        .into_iter()
+        .flatten()
+        .any(|b| b.contains(&0) || std::str::from_utf8(b).is_err_and(|e| e.error_len().is_some()));
+    let truncated = [&local_bytes, &cloud_bytes]
+        .into_iter()
+        .flatten()
+        .any(|b| b.len() > 65536);
+    let text = |bytes: Option<Vec<u8>>| {
+        bytes.map(|b| {
+            if binary {
+                String::new()
+            } else {
+                String::from_utf8_lossy(&b[..b.len().min(65536)]).into_owned()
+            }
+        })
+    };
+    Ok(FileComparison {
+        path: path.into(),
+        local: text(local_bytes),
+        cloud: text(cloud_bytes),
+        binary,
+        truncated,
+    })
 }

@@ -3,6 +3,7 @@
   import { call, chooseFolder, errorOf } from '../lib/api';
   import type { Settings, AppError } from '../lib/models';
   import ErrorMessage from './ErrorMessage.svelte';
+  import IgnoreEditor from './IgnoreEditor.svelte';
   let {
     settings,
     onchange,
@@ -12,11 +13,13 @@
   let folder = $state('');
   let loading = $state(false);
   let error = $state<AppError | null>(null);
+  let ignorePatterns = $state<string[]>([]);
   $effect(() => {
     if (settings.pendingSetup) {
       name = settings.pendingSetup.name;
       description = settings.pendingSetup.description;
       folder = settings.pendingSetup.folder;
+      ignorePatterns = settings.pendingSetup.ignorePatterns;
     }
   });
   async function create(e: SubmitEvent) {
@@ -24,7 +27,14 @@
     loading = true;
     error = null;
     try {
-      onchange(await call('create_repository', { name, description, folder }));
+      onchange(
+        await call('create_repository', {
+          name,
+          description,
+          folder,
+          ignorePatterns,
+        }),
+      );
     } catch (e) {
       error = errorOf(e);
       try {
@@ -36,8 +46,7 @@
   }
 </script>
 
-<div class="intro-icon"><IconLock size={22} /></div>
-<h3>A private home for your files</h3>
+<h3><IconLock size={16} /> Private repository</h3>
 <p class="muted">
   Created on your personal GitHub account. Your files upload when you select
   Sync Now.
@@ -86,6 +95,14 @@
   <p class="hint">
     Existing history is preserved. A conflicting origin will pause setup.
   </p>
+  <details class="ignore-section">
+    <summary>Ignored files & folders</summary><IgnoreEditor
+      folder={folder || null}
+      draft
+      bind:patterns={ignorePatterns}
+      disabled={loading || !!settings.pendingSetup}
+    />
+  </details>
   <button class="primary full" disabled={loading}
     >{loading
       ? 'Setting up…'

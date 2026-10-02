@@ -573,7 +573,12 @@ fn partial_private_setup_resumes_without_duplicate_creation() {
     .unwrap();
     assert_eq!(
         service
-            .create("repo".into(), "description".into(), f.folder.clone())
+            .create_with_ignore(
+                "repo".into(),
+                "description".into(),
+                f.folder.clone(),
+                vec!["/private/".into()]
+            )
             .unwrap_err()
             .code,
         "remoteConflict"
@@ -595,6 +600,12 @@ fn partial_private_setup_resumes_without_duplicate_creation() {
         .unwrap();
     assert_eq!(next.active_id.as_deref(), Some("1"));
     assert!(next.pending_setup.is_none());
+    assert_eq!(
+        crate::ignore::settings(Path::new(&f.folder))
+            .unwrap()
+            .patterns,
+        vec!["/private/"]
+    );
     assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
     thread.join().unwrap();
     assert_eq!(git::head(&git::open(&f.folder).unwrap()), original);
@@ -741,4 +752,155 @@ fn selection_persistence_and_recovery_blocks_switch() {
         })
     }));
     assert_eq!(service.select("1".into()).unwrap_err().code, "recovery");
+}
+#[test]
+fn cloud_comparison_includes_unpushed_commits_and_pending_files() {
+    let f = Fixture::new(true);
+    f.write("notes.txt", b"local commit\n");
+    f.commit("not pushed");
+    f.write("new.ts", b"export const value = 1;\n");
+    f.write(".gitignore", b"ignored.txt\n");
+    f.write("ignored.txt", b"secret\n");
+    let r = git::open(&f.folder).unwrap();
+    git::fetch(&r, "main", "").unwrap();
+    let before = git::fingerprint(&r).unwrap();
+    let list = git::comparison_files(&r, "main").unwrap();
+    assert!(list.files.iter().any(|f| f.path == "notes.txt"));
+    assert!(list
+        .files
+        .iter()
+        .any(|f| f.path == "new.ts" && f.status == "localOnly"));
+    assert!(!list.files.iter().any(|f| f.path == "ignored.txt"));
+    let file = git::file_comparison(&r, "notes.txt", list.cloud_oid.as_deref()).unwrap();
+    assert_eq!(file.local.as_deref(), Some("local commit\n"));
+    assert_eq!(file.cloud.as_deref(), Some("base\n"));
+    assert_eq!(before, git::fingerprint(&r).unwrap());
+}
+#[test]
+fn cloud_comparison_handles_deletions_binary_empty_remote_and_large_previews() {
+    let f = Fixture::new(true);
+    fs::remove_file(Path::new(&f.folder).join("notes.txt")).unwrap();
+    f.write("image.bin", &[0, 1, 2, 3]);
+    f.write("large.txt", &vec![b'x'; 70000]);
+    let r = git::open(&f.folder).unwrap();
+    git::fetch(&r, "main", "").unwrap();
+    let list = git::comparison_files(&r, "main").unwrap();
+    assert!(list
+        .files
+        .iter()
+        .any(|f| f.path == "notes.txt" && f.status == "cloudOnly"));
+    let removed = git::file_comparison(&r, "notes.txt", list.cloud_oid.as_deref()).unwrap();
+    assert!(removed.local.is_none());
+    assert_eq!(removed.cloud.as_deref(), Some("base\n"));
+    assert!(
+        git::file_comparison(&r, "image.bin", list.cloud_oid.as_deref())
+            .unwrap()
+            .binary
+    );
+    let large = git::file_comparison(&r, "large.txt", None).unwrap();
+    assert!(large.truncated);
+    assert_eq!(large.local.unwrap().len(), 65536);
+    assert!(git::file_comparison(&r, "../outside", None).is_err());
+    let empty = Fixture::new(false);
+    empty.write("first.txt", b"first\n");
+    let list = git::comparison_files(&git::open(&empty.folder).unwrap(), "main").unwrap();
+    assert!(list.cloud_oid.is_none());
+    assert_eq!(list.files[0].status, "localOnly");
+}
+#[test]
+fn cloud_comparison_pins_selected_version_even_after_a_later_fetch() {
+    let f = Fixture::new(true);
+    let r = git::open(&f.folder).unwrap();
+    git::fetch(&r, "main", "").unwrap();
+    let list = git::comparison_files(&r, "main").unwrap();
+    let peer = f.peer();
+    f.peer_commit(&peer, "notes.txt", b"new cloud\n");
+    git::fetch(&r, "main", "").unwrap();
+    assert_eq!(
+        git::file_comparison(&r, "notes.txt", list.cloud_oid.as_deref())
+            .unwrap()
+            .cloud
+            .as_deref(),
+        Some("base\n")
+    );
+}
+#[test]
+fn ignore_editor_preserves_existing_rules_and_rejects_external_edits() {
+    let f = Fixture::new(true);
+    let root = Path::new(&f.folder);
+    f.write(".gitignore", b"# User rules\r\n*.log\r\n!important.log\r\n");
+    let original = crate::ignore::settings(root).unwrap();
+    let saved = crate::ignore::save(
+        root,
+        vec!["/private/".into(), "/secret.txt".into()],
+        &original.revision,
+    )
+    .unwrap();
+    assert_eq!(saved.existing, original.existing);
+    assert_eq!(saved.patterns.len(), 2);
+    let r = git::open(&f.folder).unwrap();
+    assert!(r
+        .status_should_ignore(Path::new("private/file.txt"))
+        .unwrap());
+    assert!(r.status_should_ignore(Path::new("secret.txt")).unwrap());
+    assert!(r.status_should_ignore(Path::new("a.log")).unwrap());
+    f.write(".gitignore", b"changed externally\n");
+    assert_eq!(
+        crate::ignore::save(root, vec![], &saved.revision)
+            .unwrap_err()
+            .code,
+        "ignoreChanged"
+    );
+    assert_eq!(
+        fs::read(root.join(".gitignore")).unwrap(),
+        b"changed externally\n"
+    );
+    assert!(crate::ignore::validate(&["bad\nrule".into()]).is_err());
+}
+#[test]
+fn ignore_browser_excludes_git_and_keeps_tracked_files() {
+    let f = Fixture::new(true);
+    let root = Path::new(&f.folder);
+    fs::create_dir(root.join("private")).unwrap();
+    f.write(".env", b"secret");
+    let original = crate::ignore::settings(root).unwrap();
+    crate::ignore::save(
+        root,
+        vec!["/notes.txt".into(), "/.env".into()],
+        &original.revision,
+    )
+    .unwrap();
+    let entries = crate::ignore::entries(root, "").unwrap();
+    assert!(!entries.iter().any(|f| f.path == ".git"));
+    assert!(entries.iter().any(|f| f.path == "notes.txt" && f.tracked));
+    assert!(entries.iter().any(|f| f.path == ".env" && f.ignored));
+    assert!(crate::ignore::entries(root, "../").is_err());
+    assert_eq!(fs::read(root.join("notes.txt")).unwrap(), b"base\n");
+    let r = git::open(&f.folder).unwrap();
+    assert!(r
+        .index()
+        .unwrap()
+        .get_path(Path::new("notes.txt"), 0)
+        .is_some());
+}
+#[test]
+fn ignore_updates_preserve_later_user_negations() {
+    let f = Fixture::new(true);
+    let root = Path::new(&f.folder);
+    let first = crate::ignore::settings(root).unwrap();
+    crate::ignore::save(root, vec!["*.log".into()], &first.revision).unwrap();
+    let mut text = fs::read_to_string(root.join(".gitignore")).unwrap();
+    text.push_str("!keep.log\n");
+    fs::write(root.join(".gitignore"), text).unwrap();
+    let before = crate::ignore::settings(root).unwrap();
+    crate::ignore::save(root, vec!["*.log".into(), "*.tmp".into()], &before.revision).unwrap();
+    let r = git::open(&f.folder).unwrap();
+    assert!(!r.status_should_ignore(Path::new("keep.log")).unwrap());
+    assert!(r.status_should_ignore(Path::new("other.log")).unwrap());
+    let before = crate::ignore::settings(root).unwrap();
+    crate::ignore::save(root, vec![], &before.revision).unwrap();
+    assert_eq!(
+        fs::read_to_string(root.join(".gitignore")).unwrap(),
+        "!keep.log\n"
+    );
 }

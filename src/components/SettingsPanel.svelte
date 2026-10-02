@@ -3,6 +3,7 @@
   import { call, errorOf } from '../lib/api';
   import type { Settings, Automation, AppError } from '../lib/models';
   import ErrorMessage from './ErrorMessage.svelte';
+  import IgnoreEditor from './IgnoreEditor.svelte';
   let {
     settings,
     recovery,
@@ -66,6 +67,11 @@
 </script>
 
 <ErrorMessage {error} />
+{#if settings.activeId}<details class="ignore-section repository-settings">
+    <summary>Repository settings · ignored files</summary><IgnoreEditor
+      disabled={loading || recovery}
+    />
+  </details>{/if}
 <h3 class="section-label">
   <IconBrandGithub size={18} /> GitHub authentication
 </h3>

@@ -48,6 +48,16 @@ impl From<git2::Error> for AppError {
         Self::new("git", format!("Git operation failed ({:?}/{:?}).", e.class(), e.code()), "Check connectivity, token access, and repository state. Your recovery backups remain available.")
     }
 }
+#[cfg(feature = "desktop")]
+impl From<tauri::Error> for AppError {
+    fn from(_: tauri::Error) -> Self {
+        Self::new(
+            "window",
+            "Could not update the app window.",
+            "Try moving the window to another screen.",
+        )
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -91,6 +101,8 @@ pub struct PendingSetup {
     pub description: String,
     pub folder: String,
     pub remote: Option<RemoteRepository>,
+    #[serde(default)]
+    pub ignore_patterns: Vec<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -185,6 +197,50 @@ pub struct FileDiff {
     pub binary: bool,
     pub truncated: bool,
     pub patch: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/lib/generated/")]
+pub struct ComparisonFile {
+    pub path: String,
+    pub status: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/lib/generated/")]
+pub struct ComparisonList {
+    pub files: Vec<ComparisonFile>,
+    pub cloud_oid: Option<String>,
+    pub branch: String,
+    pub checked_at: String,
+    pub truncated: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/lib/generated/")]
+pub struct FileComparison {
+    pub path: String,
+    pub local: Option<String>,
+    pub cloud: Option<String>,
+    pub binary: bool,
+    pub truncated: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/lib/generated/")]
+pub struct IgnoreSettings {
+    pub patterns: Vec<String>,
+    pub existing: String,
+    pub revision: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/lib/generated/")]
+pub struct FolderEntry {
+    pub path: String,
+    pub directory: bool,
+    pub tracked: bool,
+    pub ignored: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

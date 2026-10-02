@@ -274,8 +274,18 @@ impl Service {
         description: String,
         folder: String,
     ) -> Result<Settings> {
+        self.create_with_ignore(name, description, folder, vec![])
+    }
+    pub fn create_with_ignore(
+        &mut self,
+        name: String,
+        description: String,
+        folder: String,
+        ignore_patterns: Vec<String>,
+    ) -> Result<Settings> {
         self.mutable()?;
         self.check_folder(&folder)?;
+        crate::ignore::validate(&ignore_patterns)?;
         let token = self.vault.get()?;
         match self.settings.pending_setup.clone() {
             None => {
@@ -284,6 +294,7 @@ impl Service {
                     description: description.clone(),
                     folder: folder.clone(),
                     remote: None,
+                    ignore_patterns,
                 });
                 self.storage.save_settings(&self.settings)?;
                 let remote = self.github.create_private(&token, &name, &description)?;
@@ -323,7 +334,49 @@ impl Service {
             .clone()
             .unwrap();
         let remote = self.verified(&remote)?;
-        self.remember(git::attach(&remote, &folder, true)?)
+        let mapping = git::attach(&remote, &folder, true)?;
+        let patterns = self
+            .settings
+            .pending_setup
+            .as_ref()
+            .unwrap()
+            .ignore_patterns
+            .clone();
+        if !patterns.is_empty() {
+            let root = std::path::Path::new(&folder);
+            let previous = crate::ignore::settings(root)?;
+            let mut combined = previous.patterns;
+            for pattern in patterns {
+                if !combined.contains(&pattern) {
+                    combined.push(pattern);
+                }
+            }
+            crate::ignore::save(root, combined, &previous.revision)?;
+        }
+        self.remember(mapping)
+    }
+    pub fn comparison(&mut self) -> Result<ComparisonList> {
+        self.mutable()?;
+        let mapping = self.active()?;
+        let r = git::open(&mapping.folder)?;
+        git::preflight(&r, &mapping, false)?;
+        git::fetch(&r, &mapping.branch, &self.vault.get()?)?;
+        self.last_fetch = Instant::now();
+        self.status.connectivity = "online".into();
+        self.scan()?;
+        git::comparison_files(&r, &mapping.branch)
+    }
+    pub fn save_ignores(
+        &mut self,
+        patterns: Vec<String>,
+        revision: String,
+    ) -> Result<IgnoreSettings> {
+        self.mutable()?;
+        let mapping = self.active()?;
+        let result =
+            crate::ignore::save(std::path::Path::new(&mapping.folder), patterns, &revision)?;
+        self.scan()?;
+        Ok(result)
     }
     pub fn abandon_setup(&mut self) -> Result<Settings> {
         self.mutable()?;

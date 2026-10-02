@@ -87,8 +87,94 @@ async fn create_repository(
     name: String,
     description: String,
     folder: String,
+    ignore_patterns: Vec<String>,
 ) -> Result<Settings> {
-    work(&w, true, move |s| s.create(name, description, folder)).await
+    work(&w, true, move |s| {
+        s.create_with_ignore(name, description, folder, ignore_patterns)
+    })
+    .await
+}
+#[tauri::command]
+async fn get_comparison_files(w: State<'_, Worker>) -> Result<ComparisonList> {
+    work(&w, true, |s| s.comparison()).await
+}
+#[tauri::command]
+async fn get_file_comparison(
+    w: State<'_, Worker>,
+    path: String,
+    cloud_oid: Option<String>,
+) -> Result<FileComparison> {
+    work(&w, false, move |s| {
+        git::file_comparison(
+            &git::open(&s.active()?.folder)?,
+            &path,
+            cloud_oid.as_deref(),
+        )
+    })
+    .await
+}
+#[tauri::command]
+async fn get_ignore_settings(
+    w: State<'_, Worker>,
+    folder: Option<String>,
+) -> Result<IgnoreSettings> {
+    work(&w, false, move |s| {
+        let folder = folder.unwrap_or(s.active().map(|m| m.folder).unwrap_or_default());
+        crate::ignore::settings(&PathBuf::from(folder))
+    })
+    .await
+}
+#[tauri::command]
+async fn get_folder_entries(
+    w: State<'_, Worker>,
+    folder: Option<String>,
+    directory: String,
+) -> Result<Vec<FolderEntry>> {
+    work(&w, false, move |s| {
+        let folder = folder.unwrap_or(s.active().map(|m| m.folder).unwrap_or_default());
+        crate::ignore::entries(&PathBuf::from(folder), &directory)
+    })
+    .await
+}
+#[tauri::command]
+async fn save_ignore_settings(
+    w: State<'_, Worker>,
+    patterns: Vec<String>,
+    revision: String,
+) -> Result<IgnoreSettings> {
+    work(&w, true, move |s| s.save_ignores(patterns, revision)).await
+}
+#[tauri::command]
+fn set_comparison_open(window: tauri::WebviewWindow, open: bool) -> Result<()> {
+    let monitor = window.current_monitor()?.ok_or_else(|| {
+        AppError::new(
+            "monitor",
+            "No screen is available.",
+            "Move the app to an active screen.",
+        )
+    })?;
+    let scale = monitor.scale_factor();
+    let origin = monitor.position();
+    let size = monitor.size();
+    let old = window.outer_position()?;
+    let old_width = window.inner_size()?.width as i32;
+    let width = ((if open { 1120.0 } else { 340.0 }) * scale)
+        .min(size.width as f64 - 16.0)
+        .max(1.0) as u32;
+    let height = ((if open { 640.0 } else { 460.0 }) * scale)
+        .min(size.height as f64 - 64.0)
+        .max(1.0) as u32;
+    let x = (old.x + old_width - width as i32).clamp(
+        origin.x + 8,
+        origin.x + size.width as i32 - width as i32 - 8,
+    );
+    let y = old.y.clamp(
+        origin.y + 8,
+        origin.y + size.height as i32 - height as i32 - 8,
+    );
+    window.set_size(tauri::PhysicalSize::new(width, height))?;
+    window.set_position(tauri::PhysicalPosition::new(x, y))?;
+    Ok(())
 }
 #[tauri::command]
 async fn abandon_setup(w: State<'_, Worker>) -> Result<Settings> {
@@ -202,8 +288,13 @@ fn show(app: &tauri::AppHandle, position: Option<tauri::PhysicalPosition<f64>>) 
                         && p.y < origin.y as f64 + size.height as f64
                     {
                         let scale = m.scale_factor();
-                        let width = (340.0 * scale) as i32;
-                        let height = (460.0 * scale) as i32;
+                        let current = w.inner_size().ok();
+                        let width = current
+                            .map_or((340.0 * scale) as i32, |s| s.width as i32)
+                            .min(size.width as i32 - 16);
+                        let height = current
+                            .map_or((460.0 * scale) as i32, |s| s.height as i32)
+                            .min(size.height as i32 - 16);
                         let x = (p.x as i32 - width / 2)
                             .clamp(origin.x + 8, origin.x + size.width as i32 - width - 8);
                         let y = (if p.y < origin.y as f64 + size.height as f64 / 2.0 {
@@ -232,7 +323,7 @@ pub fn run() {
             let emit=Arc::new(move|status:StatusSnapshot| {
                 let _=handle.emit("lazysync:status:v1",&status);
                 if let Some(tray)=handle.tray_by_id("lazysync") {
-                    let color=if status.error.is_some() || status.recovery && status.phase=="paused" { [248,81,73] } else if status.phase!="idle" || status.ahead+status.behind+status.changes.added+status.changes.modified+status.changes.deleted>0 { [210,153,34] } else { [63,185,80] };
+                    let color=if status.error.is_some() || status.recovery && status.phase=="paused" { [160,160,160] } else { [232,232,232] };
                     let _=tray.set_icon(Some(tray_icon(color))); let _=tray.set_tooltip(Some(format!("lazysync · {}",status.label)));
                 }
                 if status.error.as_ref().is_some_and(|e|e.code=="conflicts") { let _=handle.notification().builder().title("lazysync needs your attention").body("Open lazysync from the tray to resolve conflicts and continue syncing.").show(); }
@@ -242,15 +333,14 @@ pub fn run() {
             let open=MenuItem::with_id(app,"open","Open lazysync",true,None::<&str>)?;
             let quit=MenuItem::with_id(app,"quit","Quit",true,None::<&str>)?;
             let menu=Menu::with_items(app,&[&open,&quit])?;
-            TrayIconBuilder::with_id("lazysync").icon(tray_icon([34,211,238])).tooltip("lazysync").menu(&menu).show_menu_on_left_click(false)
+            TrayIconBuilder::with_id("lazysync").icon(tray_icon([232,232,232])).tooltip("lazysync").menu(&menu).show_menu_on_left_click(false)
                 .on_menu_event(|app,event|match event.id.as_ref() { "quit"=>app.exit(0),"open"=>show(app,None),_=>{} })
                 .on_tray_icon_event(|tray,event| { if let TrayIconEvent::Click { button:MouseButton::Left,button_state:MouseButtonState::Up,position,.. }=event { show(tray.app_handle(),Some(position)); } }).build(app)?;
             Ok(())
         })
-        .on_window_event(|window,event|match event {
-            tauri::WindowEvent::CloseRequested { api,.. }=> { api.prevent_close(); let _=window.hide(); },
-            tauri::WindowEvent::Focused(false) if !window.state::<DialogGuard>().0.load(Ordering::SeqCst)=> { let _=window.hide(); }, _=>{}
+        .on_window_event(|window,event| {
+            if let tauri::WindowEvent::CloseRequested { api,.. } = event { api.prevent_close(); let _=window.hide(); }
         })
-        .invoke_handler(tauri::generate_handler![get_settings,get_status,authenticate,save_settings,list_repositories,connect_repository,clone_repository,select_repository,create_repository,abandon_setup,reconfirm_branch,sync_now,continue_sync,get_history,get_diffs,get_conflicts,resolve_conflict,finish_recovery,set_dialog_open,quit,open_conflict_editor])
+        .invoke_handler(tauri::generate_handler![get_settings,get_status,authenticate,save_settings,list_repositories,connect_repository,clone_repository,select_repository,create_repository,abandon_setup,reconfirm_branch,sync_now,continue_sync,get_history,get_diffs,get_conflicts,resolve_conflict,finish_recovery,set_dialog_open,quit,open_conflict_editor,get_comparison_files,get_file_comparison,get_ignore_settings,get_folder_entries,save_ignore_settings,set_comparison_open])
         .run(tauri::generate_context!()).expect("lazysync desktop runtime");
 }

@@ -3,5 +3,5 @@
   "identifier": "main",
   "description": "Local lazysync flyout",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-hide", "dialog:allow-open"]
+  "permissions": ["core:default", "core:window:allow-hide", "core:window:allow-start-dragging", "dialog:allow-open"]
 }
