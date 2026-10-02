@@ -1,9 +1,5 @@
 <script lang="ts">
-  import {
-    IconCircleCheck,
-    IconAlertTriangle,
-    IconRefresh,
-  } from '@tabler/icons-svelte';
+  import Icon from './Icon.svelte';
   import type { StatusSnapshot } from '../lib/models';
   import { tone } from '../lib/format';
   let { status }: { status: StatusSnapshot } = $props();
@@ -12,11 +8,13 @@
 
 <div class="status-block {color}" aria-live="polite" aria-atomic="true">
   <div class="status-icon">
-    {#if color === 'green'}<IconCircleCheck
+    {#if color === 'green'}<Icon
+        name="check"
         size={25}
-      />{:else if color === 'red'}<IconAlertTriangle
+      />{:else if color === 'red'}<Icon name="warning" size={25} />{:else}<Icon
+        name="sync"
         size={25}
-      />{:else}<IconRefresh size={25} />{/if}
+      />{/if}
   </div>
   <div>
     <strong>{status.label}</strong>

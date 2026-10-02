@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { IconBrandGithub } from '@tabler/icons-svelte';
+  import Icon from './Icon.svelte';
   import { call, errorOf } from '../lib/api';
   import type { Settings, Automation, AppError } from '../lib/models';
   import ErrorMessage from './ErrorMessage.svelte';
@@ -73,7 +73,7 @@
     />
   </details>{/if}
 <h3 class="section-label">
-  <IconBrandGithub size={18} /> GitHub authentication
+  <Icon name="key" size={18} /> GitHub authentication
 </h3>
 <p class="muted">
   Tokens are stored in your operating system's credential vault.

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { IconFolder, IconFile, IconArrowLeft } from '@tabler/icons-svelte';
+  import Icon from './Icon.svelte';
   import { call, errorOf } from '../lib/api';
   import { ignorePattern } from '../lib/comparison';
   import type { IgnoreSettings, FolderEntry, AppError } from '../lib/models';
@@ -137,7 +137,7 @@
                 directory.includes('/')
                   ? directory.slice(0, directory.lastIndexOf('/'))
                   : '',
-              )}><IconArrowLeft size={14} /></button
+              )}><Icon name="back" size={14} /></button
           >{/if}
       </div>
       {#each entries as entry}<div class="ignore-entry">
@@ -155,11 +155,11 @@
               class="ignore-folder"
               onclick={() => browse(entry.path)}
               disabled={busy}
-              ><IconFolder size={14} /><span
+              ><Icon name="folder" size={14} /><span
                 >{entry.path.split('/').pop()}/</span
               ></button
             >{:else}<span class="ignore-file"
-              ><IconFile size={14} />{entry.path.split('/').pop()}</span
+              ><Icon name="file" size={14} />{entry.path.split('/').pop()}</span
             >{/if}
           {#if entry.tracked}<small
               title="Git already tracks this path. Ignore rules do not remove tracked files."

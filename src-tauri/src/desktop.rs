@@ -257,15 +257,33 @@ async fn open_conflict_editor(w: State<'_, Worker>, path: String) -> Result<()> 
     .map_err(|_| AppError::new("editor", "Editor task failed.", "Open the file manually."))?
 }
 fn tray_icon(color: [u8; 3]) -> Image<'static> {
+    fn near_segment(x: f32, y: f32, a: (f32, f32), b: (f32, f32)) -> bool {
+        let vx = b.0 - a.0;
+        let vy = b.1 - a.1;
+        let t = (((x - a.0) * vx + (y - a.1) * vy) / (vx * vx + vy * vy)).clamp(0.0, 1.0);
+        ((x - a.0 - t * vx).powi(2) + (y - a.1 - t * vy).powi(2)).sqrt() < 0.85
+    }
     let mut rgba = vec![0u8; 32 * 32 * 4];
     for y in 0..32 {
         for x in 0..32 {
-            let dx = x as f32 - 15.5;
-            let dy = y as f32 - 15.5;
+            let dx = x as f32 - 16.0;
+            let dy = y as f32 - 16.0;
             let radius = (dx * dx + dy * dy).sqrt();
-            if (9.0..12.5).contains(&radius) && !(dx.abs() < 3.0 && dy.abs() > 9.0)
-                || ((21..=27).contains(&x) && (5..=10).contains(&y))
-                || ((4..=10).contains(&x) && (21..=26).contains(&y))
+            let angle = dy.atan2(dx).to_degrees();
+            let arc = (radius - 9.33).abs() < 0.85
+                && ((-135.0..=-22.0).contains(&angle) || (45.0..=158.0).contains(&angle));
+            let segments = [
+                ((8.9, 9.1), (6.0, 12.0)),
+                ((6.0, 6.0), (6.0, 12.0)),
+                ((6.0, 12.0), (12.0, 12.0)),
+                ((23.1, 22.9), (26.0, 20.0)),
+                ((26.0, 26.0), (26.0, 20.0)),
+                ((26.0, 20.0), (20.0, 20.0)),
+            ];
+            if arc
+                || segments
+                    .iter()
+                    .any(|(a, b)| near_segment(x as f32, y as f32, *a, *b))
             {
                 let i = (y * 32 + x) * 4;
                 rgba[i..i + 3].copy_from_slice(&color);

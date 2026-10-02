@@ -1,6 +1,6 @@
 {
   "name": "lazysync",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,7 +14,6 @@
     "test:ui": "playwright test"
   },
   "dependencies": {
-    "@tabler/icons-svelte": "^3.35.0",
     "@tauri-apps/api": "^2.8.0",
     "@tauri-apps/plugin-dialog": "^2.4.0",
     "diff": "^9.0.0",

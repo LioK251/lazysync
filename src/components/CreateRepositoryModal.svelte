@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { IconLock, IconFolder } from '@tabler/icons-svelte';
+  import Icon from './Icon.svelte';
   import { call, chooseFolder, errorOf } from '../lib/api';
   import type { Settings, AppError } from '../lib/models';
   import ErrorMessage from './ErrorMessage.svelte';
@@ -46,7 +46,7 @@
   }
 </script>
 
-<h3><IconLock size={16} /> Private repository</h3>
+<h3><Icon name="lock" size={16} /> Private repository</h3>
 <p class="muted">
   Created on your personal GitHub account. Your files upload when you select
   Sync Now.
@@ -89,7 +89,7 @@
       onclick={async () => {
         const p = await chooseFolder();
         if (p) folder = p;
-      }}><IconFolder size={18} /></button
+      }}><Icon name="folder" size={18} /></button
     >
   </div>
   <p class="hint">

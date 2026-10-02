@@ -1,4 +1,4 @@
-lazysync 0.2.0 introduces a simpler dark gray-and-white interface.
+lazysync 0.2.1 introduces a simpler dark gray-and-white interface with a matching set of thin, monochrome icons in the app, tray, and installers.
 
 - A left-expanding Difference checker compares local files with the fetched GitHub branch, including unpushed commits.
 - Side-by-side previews include syntax highlighting, aligned line numbers, changed-line markers, and binary/deletion indicators.

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { IconLock, IconFolder, IconSearch } from '@tabler/icons-svelte';
+  import Icon from './Icon.svelte';
   import { call, chooseFolder, errorOf } from '../lib/api';
   import type { Settings, RemoteRepository, AppError } from '../lib/models';
   import ErrorMessage from './ErrorMessage.svelte';
@@ -95,7 +95,7 @@
       onclick={async () => {
         const p = await chooseFolder();
         if (p) folder = p;
-      }}><IconFolder size={18} /></button
+      }}><Icon name="folder" size={18} /></button
     >
   </div>
   <button
@@ -116,7 +116,7 @@
         class="repo-row"
         disabled={loading}
         onclick={() => select(mapping.remote.id)}
-        ><IconFolder size={18} /><span
+        ><Icon name="folder" size={18} /><span
           ><strong>{mapping.remote.fullName}</strong><small
             title={mapping.folder}>{mapping.folder}</small
           ></span
@@ -126,7 +126,7 @@
       >{/each}{/if}
   <h3 class="section-label">On GitHub</h3>
   <div class="search">
-    <IconSearch size={16} /><input
+    <Icon name="search" size={16} /><input
       aria-label="Search loaded repositories"
       bind:value={query}
       placeholder="Search loaded repositories…"
@@ -140,7 +140,7 @@
         selected = repo;
         folder = '';
       }}
-      ><IconLock size={17} /><span
+      ><Icon name="lock" size={17} /><span
         ><strong>{repo.fullName}</strong><small
           >{repo.owner} · {repo.private ? 'Private' : 'Public'} · {repo.writable
             ? 'Write access'

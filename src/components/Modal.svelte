@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { IconArrowLeft } from '@tabler/icons-svelte';
+  import Icon from './Icon.svelte';
   import type { Snippet } from 'svelte';
   import { call } from '../lib/api';
   let {
@@ -30,7 +30,7 @@
 >
   <header class="panel-header" data-tauri-drag-region>
     <button class="icon-button" onclick={onclose} aria-label="Back"
-      ><IconArrowLeft size={18} /></button
+      ><Icon name="back" size={18} /></button
     >
     <h2 data-tauri-drag-region>{title}</h2>
   </header>

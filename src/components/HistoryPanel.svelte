@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { IconGitCommit, IconChevronRight } from '@tabler/icons-svelte';
+  import Icon from './Icon.svelte';
   import { call, errorOf } from '../lib/api';
   import { relative } from '../lib/format';
   import type { Commit, AppError } from '../lib/models';
@@ -45,11 +45,11 @@
   {#each commits as commit}<button
       class="commit-row"
       onclick={() => (selected = commit)}
-      ><IconGitCommit size={18} /><span
+      ><Icon name="commit" size={18} /><span
         ><strong>{commit.summary}</strong><small
           >{commit.oid.slice(0, 7)} · {relative(commit.timestamp)}</small
         ></span
-      ><IconChevronRight size={16} /></button
+      ><Icon name="right" size={16} /></button
     >{/each}
   <div class="pagination">
     <button disabled={page === 0 || loading} onclick={() => load(page - 1)}

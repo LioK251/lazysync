@@ -1,17 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import {
-    IconRefresh,
-    IconSettings,
-    IconChevronDown,
-    IconGitBranch,
-    IconDeviceDesktop,
-    IconHistory,
-    IconArrowUpRight,
-    IconX,
-    IconColumns2,
-    IconChevronRight,
-  } from '@tabler/icons-svelte';
+  import Icon from './components/Icon.svelte';
   import { call, errorOf, onStatus, hide, preview } from './lib/api';
   import { acceptSnapshot, relative } from './lib/format';
   import type { Settings, StatusSnapshot, AppError } from './lib/models';
@@ -127,7 +116,7 @@
   <main class="flyout">
     <header class="app-header" data-tauri-drag-region>
       <div class="wordmark" data-tauri-drag-region>
-        <IconRefresh size={16} stroke={1.6} />
+        <Icon name="sync" size={16} />
         <h1 data-tauri-drag-region>lazysync</h1>
         {#if preview}<span class="badge">Preview</span>{/if}
       </div>
@@ -137,11 +126,11 @@
           onclick={() => (panel = 'settings')}
           aria-label="Settings"
           disabled={operating || comparisonOpen}
-          ><IconSettings size={17} /></button
+          ><Icon name="settings" size={17} /></button
         ><button
           class="icon-button"
           onclick={() => hide()}
-          aria-label="Hide lazysync"><IconX size={17} /></button
+          aria-label="Hide lazysync"><Icon name="close" size={17} /></button
         >
       </div>
     </header>
@@ -155,14 +144,14 @@
             >{active?.remote.fullName.split('/').pop() ??
               'Choose a repository'}</strong
           ></span
-        ><IconChevronDown size={17} /></button
+        ><Icon name="down" size={17} /></button
       >
       {#if active && settings}<p class="repository-owner">
           {active.remote.owner} / {active.remote.private ? 'Private' : 'Public'}
         </p>
         <div class="meta">
-          <span><IconGitBranch size={13} />{active.branch}</span><span
-            ><IconDeviceDesktop size={13} />{settings.deviceName}</span
+          <span><Icon name="branch" size={13} />{active.branch}</span><span
+            ><Icon name="device" size={13} />{settings.deviceName}</span
           >
         </div>{/if}
       {#if status && active}<StatusIndicator {status} />
@@ -181,13 +170,14 @@
             onclick={() => compare(!comparisonOpen)}
             disabled={operating || status.recovery}
             aria-expanded={comparisonOpen}
-            ><IconColumns2 size={17} /><span>Difference checker</span
-            ><IconChevronRight size={15} /></button
+            ><Icon name="difference" size={17} /><span>Difference checker</span
+            ><Icon name="right" size={15} /></button
           >
           <button
             onclick={() => (panel = 'history')}
             disabled={operating || comparisonOpen}
-            ><IconHistory size={17} /><span>History</span><IconChevronRight
+            ><Icon name="history" size={17} /><span>History</span><Icon
+              name="right"
               size={15}
             /></button
           >
@@ -229,11 +219,14 @@
           >
         </div>
       {:else if settings}<div class="empty welcome">
-          <div class="intro-icon"><IconGitBranch size={26} /></div>
+          <div class="intro-icon"><Icon name="branch" size={26} /></div>
           <h2>Keep your files in sync.</h2>
           <p>Choose a repository to get started.</p>
           <button class="text-button" onclick={() => (panel = 'create')}
-            >Create a private repository <IconArrowUpRight size={14} /></button
+            >Create a private repository <Icon
+              name="external"
+              size={14}
+            /></button
           >
         </div>{:else if !error}<p role="status">Loading lazysync…</p>{/if}
       <ErrorMessage error={error ?? status?.error ?? null} />
@@ -242,18 +235,21 @@
       {#if status?.recovery}<button
           class="primary sync-button"
           onclick={() => (panel = 'recovery')}
-          disabled={operating}><IconRefresh size={19} />Review recovery</button
+          disabled={operating}
+          ><Icon name="sync" size={19} />Review recovery</button
         >{:else if active}<button
           class="primary sync-button"
           onclick={sync}
           disabled={operating || comparisonOpen}
-          ><IconRefresh size={19} class={operating ? 'spin' : ''} />{operating
-            ? 'Syncing…'
-            : 'Sync Now'}</button
+          ><Icon
+            name="sync"
+            size={19}
+            class={operating ? 'spin' : ''}
+          />{operating ? 'Syncing…' : 'Sync Now'}</button
         >{:else}<button
           class="primary sync-button"
           onclick={() => (panel = 'settings')}
-          ><IconArrowUpRight size={18} />Connect GitHub</button
+          ><Icon name="external" size={18} />Connect GitHub</button
         >{/if}
     </div>
   </main>

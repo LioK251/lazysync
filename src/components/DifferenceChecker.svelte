@@ -1,13 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import {
-    IconX,
-    IconRefresh,
-    IconFile,
-    IconChevronRight,
-    IconCloud,
-    IconDeviceDesktop,
-  } from '@tabler/icons-svelte';
+  import Icon from './Icon.svelte';
   import { call, errorOf } from '../lib/api';
   import {
     languageFor,
@@ -93,12 +86,12 @@
         aria-label="Refresh cloud comparison"
         onclick={refresh}
         disabled={loading}
-        ><IconRefresh size={16} class={loading ? 'spin' : ''} /></button
+        ><Icon name="sync" size={16} class={loading ? 'spin' : ''} /></button
       >
       <button
         class="icon-button"
         aria-label="Close difference checker"
-        onclick={onclose}><IconX size={16} /></button
+        onclick={onclose}><Icon name="close" size={16} /></button
       >
     </div>
   </header>
@@ -119,7 +112,7 @@
       Fetching the latest cloud files…
     </div>
   {:else if list && !list.files.length}<div class="empty comparison-empty">
-      <IconCloud size={26} />
+      <Icon name="cloud" size={26} />
       <h3>No differences</h3>
       <p>
         Your local files match {list.cloudOid
@@ -145,7 +138,7 @@
               aria-pressed={selected === item.path}
               title={item.path}
             >
-              <IconFile size={14} /><span
+              <Icon name="file" size={14} /><span
                 ><strong>{item.path.split('/').pop()}</strong><small
                   >{item.path.includes('/')
                     ? item.path.slice(0, item.path.lastIndexOf('/'))
@@ -155,7 +148,7 @@
                         ? 'Only cloud'
                         : 'Modified'}</small
                 ></span
-              ><IconChevronRight size={12} />
+              ><Icon name="right" size={12} />
             </button>{/each}
         </div>
         {#if list.truncated}<p class="hint">First 500 files shown.</p>{/if}
@@ -168,10 +161,10 @@
         </div>
         <div class="comparison-sides">
           <span
-            ><IconDeviceDesktop size={14} />Local
+            ><Icon name="device" size={14} />Local
             <small>Working file</small></span
           ><span
-            ><IconCloud size={14} />Cloud
+            ><Icon name="cloud" size={14} />Cloud
             <small
               >{list.cloudOid
                 ? `origin/${list.branch} · ${list.cloudOid.slice(0, 7)}`
