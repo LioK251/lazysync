@@ -8,11 +8,14 @@ use std::{
 };
 
 pub fn command(folder: &Path, args: &[&str], settings: Option<&Settings>) -> Result<Vec<u8>> {
+    // An empty hooksPath can resolve to the checkout root. Use a real empty directory.
+    let hooks = tempfile::tempdir()?;
+    let disabled_hooks = format!("core.hooksPath={}", hooks.path().to_string_lossy());
     let mut c = Command::new("git");
     c.current_dir(folder)
         .args([
             "-c",
-            "core.hooksPath=",
+            &disabled_hooks,
             "-c",
             "commit.gpgSign=false",
             "-c",

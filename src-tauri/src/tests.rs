@@ -531,6 +531,22 @@ fn github_identity_and_token_not_in_error() {
 
 struct MemoryVault(std::sync::Mutex<String>);
 #[test]
+fn checkout_root_hook_is_never_executed() {
+    let f = Fixture::new(true);
+    f.write("pre-commit", b"#!/bin/sh\ntouch hook-ran\n");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(
+            Path::new(&f.folder).join("pre-commit"),
+            fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+    }
+    f.commit("root file is not a hook");
+    assert!(!Path::new(&f.folder).join("hook-ran").exists());
+}
+#[test]
 fn partial_private_setup_resumes_without_duplicate_creation() {
     let f = Fixture::new(true);
     let original = git::head(&git::open(&f.folder).unwrap());
