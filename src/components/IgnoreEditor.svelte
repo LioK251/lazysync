@@ -4,6 +4,7 @@
   import { ignorePattern } from '../lib/comparison';
   import type { IgnoreSettings, FolderEntry, AppError } from '../lib/models';
   import ErrorMessage from './ErrorMessage.svelte';
+  import { formatBytes, sizeTitle, exceedsLimit } from '../lib/size';
   let {
     folder = null,
     draft = false,
@@ -161,6 +162,15 @@
             >{:else}<span class="ignore-file"
               ><Icon name="file" size={14} />{entry.path.split('/').pop()}</span
             >{/if}
+          {#if !entry.directory}<span
+              class="ignore-size"
+              title={sizeTitle(entry.sizeBytes)}
+            >
+              <span>{formatBytes(entry.sizeBytes)}</span>
+              {#if exceedsLimit(entry.sizeBytes)}<small class="size-limit"
+                  >Over 100 MiB</small
+                >{/if}
+            </span>{/if}
           {#if entry.tracked}<small
               title="Git already tracks this path. Ignore rules do not remove tracked files."
               >Tracked</small

@@ -928,6 +928,13 @@ fn cloud_comparison_includes_unpushed_commits_and_pending_files() {
     let file = git::file_comparison(&r, "notes.txt", list.cloud_oid.as_deref()).unwrap();
     assert_eq!(file.local.as_deref(), Some("local commit\n"));
     assert_eq!(file.cloud.as_deref(), Some("base\n"));
+    assert_eq!(file.local_size, Some(13));
+    assert_eq!(file.cloud_size, Some(5));
+    let summary = list.files.iter().find(|f| f.path == "notes.txt").unwrap();
+    assert_eq!(
+        (summary.local_size, summary.cloud_size),
+        (Some(13), Some(5))
+    );
     assert_eq!(before, git::fingerprint(&r).unwrap());
 }
 #[test]
@@ -945,6 +952,8 @@ fn cloud_comparison_handles_deletions_binary_empty_remote_and_large_previews() {
         .any(|f| f.path == "notes.txt" && f.status == "cloudOnly"));
     let removed = git::file_comparison(&r, "notes.txt", list.cloud_oid.as_deref()).unwrap();
     assert!(removed.local.is_none());
+    assert_eq!(removed.local_size, None);
+    assert_eq!(removed.cloud_size, Some(5));
     assert_eq!(removed.cloud.as_deref(), Some("base\n"));
     assert!(
         git::file_comparison(&r, "image.bin", list.cloud_oid.as_deref())
@@ -952,6 +961,8 @@ fn cloud_comparison_handles_deletions_binary_empty_remote_and_large_previews() {
             .binary
     );
     let large = git::file_comparison(&r, "large.txt", None).unwrap();
+    assert_eq!(large.local_size, Some(70000));
+    assert_eq!(large.cloud_size, None);
     assert!(large.truncated);
     assert_eq!(large.local.unwrap().len(), 65536);
     assert!(git::file_comparison(&r, "../outside", None).is_err());
@@ -1027,6 +1038,14 @@ fn ignore_browser_excludes_git_and_keeps_tracked_files() {
     let entries = crate::ignore::entries(root, "").unwrap();
     assert!(!entries.iter().any(|f| f.path == ".git"));
     assert!(entries.iter().any(|f| f.path == "notes.txt" && f.tracked));
+    assert_eq!(
+        entries
+            .iter()
+            .find(|f| f.path == "notes.txt")
+            .unwrap()
+            .size_bytes,
+        Some(5)
+    );
     assert!(entries.iter().any(|f| f.path == ".env" && f.ignored));
     assert!(crate::ignore::entries(root, "../").is_err());
     assert_eq!(fs::read(root.join("notes.txt")).unwrap(), b"base\n");

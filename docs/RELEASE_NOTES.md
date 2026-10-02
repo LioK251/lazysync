@@ -1,4 +1,8 @@
-lazysync 0.2.2 fixes repository operations getting stuck behind background checks on large folders.
+lazysync 0.2.3 adds file size information and includes the fix for repository operations getting stuck behind background checks on large folders.
+
+- File sizes are visible in the ignore picker and Difference checker, including separate Local and Cloud sizes.
+- Sizes reflect full files, even for binary files and truncated previews; hover to see the exact byte count.
+- Files larger than 100 MiB have a clear label, and oversized-file errors include their sizes.
 
 - Background checks no longer hash every file's contents; automation Off skips even the metadata fingerprint.
 - Manual actions queue behind routine checks. Status and settings remain readable while the worker is running.

@@ -9,6 +9,7 @@
   } from '../lib/comparison';
   import type { ComparisonList, FileComparison, AppError } from '../lib/models';
   import ErrorMessage from './ErrorMessage.svelte';
+  import { formatBytes, sizeTitle, exceedsLimit } from '../lib/size';
   let { onclose }: { onclose: () => void } = $props();
   let list = $state<ComparisonList | null>(null);
   let file = $state<FileComparison | null>(null);
@@ -147,7 +148,18 @@
                       : item.status === 'cloudOnly'
                         ? 'Only cloud'
                         : 'Modified'}</small
-                ></span
+                ><small class="comparison-file-size">
+                  {#if item.localSize !== null}<span
+                      title={sizeTitle(item.localSize)}
+                      >Local {formatBytes(item.localSize)}</span
+                    >{/if}
+                  {#if item.cloudSize !== null}<span
+                      title={sizeTitle(item.cloudSize)}
+                      >Cloud {formatBytes(item.cloudSize)}</span
+                    >{/if}
+                </small>{#if exceedsLimit(item.localSize)}<small
+                    class="size-limit">Over 100 MiB · ignore before sync</small
+                  >{/if}</span
               ><Icon name="right" size={12} />
             </button>{/each}
         </div>
@@ -162,9 +174,19 @@
         <div class="comparison-sides">
           <span
             ><Icon name="device" size={14} />Local
+            {#if file}<b class="file-size" title={sizeTitle(file.localSize)}
+                >{file.localSize === null
+                  ? 'Missing'
+                  : formatBytes(file.localSize)}</b
+              >{/if}
             <small>Working file</small></span
           ><span
             ><Icon name="cloud" size={14} />Cloud
+            {#if file}<b class="file-size" title={sizeTitle(file.cloudSize)}
+                >{file.cloudSize === null
+                  ? 'Missing'
+                  : formatBytes(file.cloudSize)}</b
+              >{/if}
             <small
               >{list.cloudOid
                 ? `origin/${list.branch} · ${list.cloudOid.slice(0, 7)}`

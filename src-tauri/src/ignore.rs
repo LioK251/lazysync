@@ -198,6 +198,11 @@ pub fn entries(root: &Path, directory: &str) -> Result<Vec<FolderEntry>> {
             directory: metadata.is_dir(),
             tracked,
             ignored,
+            size_bytes: if metadata.is_file() {
+                entry.metadata().ok().map(|m| m.len())
+            } else {
+                None
+            },
         });
         if result.len() >= 500 {
             break;

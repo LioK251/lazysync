@@ -35,14 +35,14 @@ pub fn validate_upload_files(r: &Repository) -> Result<()> {
         if let Ok(metadata) = fs::symlink_metadata(r.workdir().unwrap().join(name.as_ref())) {
             if metadata.is_file()
                 && metadata.len() > 100 * 1024 * 1024
-                && !large.contains(&name.to_string())
+                && !large.iter().any(|(path, _)| path == name.as_ref())
             {
-                large.push(name.to_string());
+                large.push((name.to_string(), metadata.len()));
             }
         }
     }
     if !large.is_empty() {
-        return Err(AppError::new("largeFiles", format!("{} included file(s) exceed GitHub's 100 MiB limit: {}{}", large.len(), large.iter().take(5).cloned().collect::<Vec<_>>().join(", "), if large.len() > 5 { ", …" } else { "" }), "Open Settings → Repository settings → ignored files and exclude those paths before syncing. Already tracked files must be untracked in a Git client. No files have been uploaded or removed."));
+        return Err(AppError::new("largeFiles", format!("{} included file(s) exceed GitHub's 100 MiB limit: {}{}", large.len(), large.iter().take(5).map(|(path, size)| format!("{path} ({:.1} MiB)", *size as f64 / 1048576.0)).collect::<Vec<_>>().join(", "), if large.len() > 5 { ", …" } else { "" }), "Open Settings → Repository settings → ignored files and exclude those paths before syncing. Already tracked files must be untracked in a Git client. No files have been uploaded or removed."));
     }
     Ok(())
 }
@@ -756,6 +756,7 @@ pub fn comparison_files(r: &Repository, branch: &str) -> Result<ComparisonList> 
         .include_typechange(true);
     let diff = r.diff_tree_to_workdir_with_index(tree.as_ref(), Some(&mut opts))?;
     let truncated = diff.deltas().len() > 500;
+    let odb = r.odb()?;
     let files = diff
         .deltas()
         .take(500)
@@ -772,6 +773,17 @@ pub fn comparison_files(r: &Repository, branch: &str) -> Result<ComparisonList> 
                     _ => "modified",
                 }
                 .into(),
+                local_size: safe_path(r.workdir()?, &path.to_string_lossy())
+                    .ok()
+                    .and_then(|p| fs::metadata(p).ok())
+                    .filter(|m| m.is_file())
+                    .map(|m| m.len()),
+                cloud_size: tree
+                    .as_ref()
+                    .and_then(|t| t.get_path(path).ok())
+                    .and_then(|e| odb.read_header(e.id()).ok())
+                    .filter(|(_, kind)| *kind == git2::ObjectType::Blob)
+                    .map(|(size, _)| size as u64),
             })
         })
         .collect();
@@ -804,16 +816,17 @@ pub fn file_comparison(
         })?,
         path,
     )?;
-    let local_bytes = match fs::File::open(local_path) {
+    let (local_bytes, local_size) = match fs::File::open(local_path) {
         Ok(file) => {
+            let size = file.metadata()?.len();
             let mut bytes = vec![];
             file.take(65537).read_to_end(&mut bytes)?;
-            Some(bytes)
+            (Some(bytes), Some(size))
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (None, None),
         Err(e) => return Err(e.into()),
     };
-    let cloud_bytes = if let Some(oid) = cloud_oid {
+    let (cloud_bytes, cloud_size) = if let Some(oid) = cloud_oid {
         let tree = r.find_commit(Oid::from_str(oid)?)?.tree()?;
         match tree.get_path(Path::new(path)) {
             Ok(entry) => {
@@ -825,13 +838,16 @@ pub fn file_comparison(
                     ));
                 }
                 let blob = r.find_blob(entry.id())?;
-                Some(blob.content()[..blob.size().min(65537)].to_vec())
+                (
+                    Some(blob.content()[..blob.size().min(65537)].to_vec()),
+                    Some(blob.size() as u64),
+                )
             }
-            Err(e) if e.code() == git2::ErrorCode::NotFound => None,
+            Err(e) if e.code() == git2::ErrorCode::NotFound => (None, None),
             Err(e) => return Err(e.into()),
         }
     } else {
-        None
+        (None, None)
     };
     // Truncated UTF-8 previews can end inside a codepoint; do not label that binary.
     let binary = [&local_bytes, &cloud_bytes]
@@ -855,6 +871,8 @@ pub fn file_comparison(
         path: path.into(),
         local: text(local_bytes),
         cloud: text(cloud_bytes),
+        local_size,
+        cloud_size,
         binary,
         truncated,
     })

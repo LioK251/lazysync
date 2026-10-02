@@ -40,6 +40,12 @@ test('compact flyout, pending diff, history, and sync feedback', async ({
   await page.screenshot({ path: 'docs/difference-checker.png' });
   await page.getByRole('button', { name: /cover.png/ }).click();
   await expect(
+    page.locator('.comparison-sides').getByText('8 KiB', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator('.comparison-sides').getByText('4 KiB', { exact: true }),
+  ).toBeVisible();
+  await expect(
     page.getByRole('heading', { name: 'Binary file' }),
   ).toBeVisible();
   await page.getByRole('button', { name: /old-notes.txt/ }).click();
@@ -106,6 +112,18 @@ test('ignore settings support folder browsing, presets, and safe save', async ({
   await page
     .getByText('Repository settings · ignored files', { exact: true })
     .click();
+  await expect(
+    page
+      .locator('.ignore-entry')
+      .filter({ hasText: 'video.mov' })
+      .getByText('132 MiB', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .locator('.ignore-entry')
+      .filter({ hasText: 'video.mov' })
+      .getByText('Over 100 MiB', { exact: true }),
+  ).toBeVisible();
   await page
     .getByRole('checkbox', { name: 'Ignore node_modules', exact: true })
     .check();

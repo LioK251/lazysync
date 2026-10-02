@@ -34,6 +34,8 @@ The interface uses dark gray surfaces and white controls. **Difference checker**
 
 Select a file to see Local and Cloud side by side, with aligned line numbers, changed-line markers, and syntax colors based on the file extension. Binary and missing files are labeled explicitly. Text previews are limited to 64 KiB per side, with up to 500 different files listed. Comparison is read-only. The native window stays inside the current monitor when expanding and collapsing.
 
+File sizes appear in the comparison list and beside the Local and Cloud headings. These are full file sizes, even when a preview is truncated or binary; missing files are labeled. The ignore picker also shows each file's size, with an **Over 100 MiB** label for files exceeding GitHub's limit. Sizes use binary units (KiB, MiB, GiB), with exact byte counts on hover. Directory totals are not calculated while browsing.
+
 ![Difference checker](docs/difference-checker.png)
 
 In **Create private repository → Ignored files & folders**, choose files/folders or add patterns before creation. In **Settings → Repository settings · ignored files**, browse the active folder, use presets, or edit one pattern per line and select **Save ignore rules**. A checked file produces a rooted, escaped rule for that exact path. Existing `.gitignore` rules and their order are preserved outside the labeled lazysync section. External edits require reloading before saving. Partial creation saves selected rules so setup can resume.
@@ -78,7 +80,7 @@ Rust tests use temporary checkouts and bare remotes; GitHub requests use a local
 
 Windows: `npm run tauri build -- --bundles nsis,msi`. macOS: `npm run tauri build -- --bundles dmg`. Native bundles live in `src-tauri/target/release/bundle`. Icons are generated with Tauri tooling; the existing root `test.rs` is preserved.
 
-Tag `v0.2.2` to run release CI. It verifies repository privacy, creates a draft release, builds Windows x64 `.exe`/`.msi` and Apple Silicon/Intel `.dmg`, attaches artifacts, and publishes only after every platform succeeds. The repository is never made public. See [Tauri distribution](https://v2.tauri.app/distribute/) and [Tauri GitHub Action](https://github.com/tauri-apps/tauri-action).
+Tag `v0.2.3` to run release CI. It verifies repository privacy, creates a draft release, builds Windows x64 `.exe`/`.msi` and Apple Silicon/Intel `.dmg`, attaches artifacts, and publishes only after every platform succeeds. The repository is never made public. See [Tauri distribution](https://v2.tauri.app/distribute/) and [Tauri GitHub Action](https://github.com/tauri-apps/tauri-action).
 
 ## Optional signing
 

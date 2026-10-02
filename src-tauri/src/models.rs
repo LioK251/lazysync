@@ -204,6 +204,10 @@ pub struct FileDiff {
 pub struct ComparisonFile {
     pub path: String,
     pub status: String,
+    #[ts(type = "number | null")]
+    pub local_size: Option<u64>,
+    #[ts(type = "number | null")]
+    pub cloud_size: Option<u64>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -222,6 +226,10 @@ pub struct FileComparison {
     pub path: String,
     pub local: Option<String>,
     pub cloud: Option<String>,
+    #[ts(type = "number | null")]
+    pub local_size: Option<u64>,
+    #[ts(type = "number | null")]
+    pub cloud_size: Option<u64>,
     pub binary: bool,
     pub truncated: bool,
 }
@@ -241,6 +249,8 @@ pub struct FolderEntry {
     pub directory: bool,
     pub tracked: bool,
     pub ignored: bool,
+    #[ts(type = "number | null")]
+    pub size_bytes: Option<u64>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

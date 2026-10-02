@@ -102,31 +102,18 @@ export async function callPreview(
           { path: 'notes/ideas.md', status: 'localOnly' },
           { path: 'cover.png', status: 'modified' },
           { path: 'old-notes.txt', status: 'cloudOnly' },
-        ],
+        ].map((item) => ({
+          ...item,
+          localSize: filePreview(item.path).localSize,
+          cloudSize: filePreview(item.path).cloudSize,
+        })),
         cloudOid: 'a18cf73213ee654fed3105625a70be1233456789',
         branch: 'main',
         checkedAt: new Date().toISOString(),
         truncated: false,
       };
     case 'get_file_comparison': {
-      const path = args?.path;
-      return {
-        path,
-        local:
-          path === 'old-notes.txt'
-            ? null
-            : path === 'src/sync.ts'
-              ? '// Keep files together.\nexport async function sync(repository: string) {\n  const changes = await inspect(repository);\n  if (changes.length > 0) {\n    await upload(changes);\n  }\n  return { synced: true };\n}\n'
-              : '# Field notes\nMake room for the next idea.\n',
-        cloud:
-          path === 'notes/ideas.md'
-            ? null
-            : path === 'src/sync.ts'
-              ? '// Keep files together.\nexport async function sync(repository: string) {\n  const changes = await inspect(repository);\n  await upload(changes);\n  return { synced: true };\n}\n'
-              : 'Archived notes\n',
-        binary: path === 'cover.png',
-        truncated: false,
-      };
+      return filePreview(String(args?.path));
     }
     case 'get_ignore_settings':
       return { patterns: [], existing: '*.log\n', revision: 'preview' };
@@ -138,22 +125,44 @@ export async function callPreview(
               directory: false,
               tracked: true,
               ignored: false,
+              sizeBytes: 2048,
             },
           ]
         : [
-            { path: 'src', directory: true, tracked: true, ignored: false },
+            {
+              path: 'src',
+              directory: true,
+              tracked: true,
+              ignored: false,
+              sizeBytes: null,
+            },
             {
               path: 'node_modules',
               directory: true,
               tracked: false,
               ignored: false,
+              sizeBytes: null,
             },
-            { path: '.env', directory: false, tracked: false, ignored: false },
+            {
+              path: '.env',
+              directory: false,
+              tracked: false,
+              ignored: false,
+              sizeBytes: 96,
+            },
             {
               path: 'README.md',
               directory: false,
               tracked: true,
               ignored: false,
+              sizeBytes: 2048,
+            },
+            {
+              path: 'video.mov',
+              directory: false,
+              tracked: false,
+              ignored: false,
+              sizeBytes: 132 * 1024 * 1024,
             },
           ];
     case 'save_ignore_settings':
@@ -188,4 +197,38 @@ export async function callPreview(
           'Use the native app to authenticate, connect, and create repositories.',
       };
   }
+}
+
+function filePreview(path: string) {
+  const local =
+    path === 'old-notes.txt'
+      ? null
+      : path === 'src/sync.ts'
+        ? '// Keep files together.\nexport async function sync(repository: string) {\n  const changes = await inspect(repository);\n  if (changes.length > 0) {\n    await upload(changes);\n  }\n  return { synced: true };\n}\n'
+        : '# Field notes\nMake room for the next idea.\n';
+  const cloud =
+    path === 'notes/ideas.md'
+      ? null
+      : path === 'src/sync.ts'
+        ? '// Keep files together.\nexport async function sync(repository: string) {\n  const changes = await inspect(repository);\n  await upload(changes);\n  return { synced: true };\n}\n'
+        : 'Archived notes\n';
+  return {
+    path,
+    local,
+    cloud,
+    binary: path === 'cover.png',
+    truncated: false,
+    localSize:
+      local === null
+        ? null
+        : path === 'cover.png'
+          ? 8192
+          : new TextEncoder().encode(local).length,
+    cloudSize:
+      cloud === null
+        ? null
+        : path === 'cover.png'
+          ? 4096
+          : new TextEncoder().encode(cloud).length,
+  };
 }
