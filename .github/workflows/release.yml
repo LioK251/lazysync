@@ -3,6 +3,12 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platforms to rebuild for the current version
+        type: choice
+        default: all
+        options: [all, macos, windows]
 permissions:
   contents: write
 jobs:
@@ -34,16 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            bundles: nsis,msi
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            bundles: dmg
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            bundles: dmg
+        include: ${{ fromJSON(inputs.platform == 'macos' && '[{"os":"macos-latest","target":"aarch64-apple-darwin","bundles":"dmg"},{"os":"macos-15-intel","target":"x86_64-apple-darwin","bundles":"dmg"}]' || inputs.platform == 'windows' && '[{"os":"windows-latest","target":"x86_64-pc-windows-msvc","bundles":"nsis,msi"}]' || '[{"os":"windows-latest","target":"x86_64-pc-windows-msvc","bundles":"nsis,msi"},{"os":"macos-latest","target":"aarch64-apple-darwin","bundles":"dmg"},{"os":"macos-15-intel","target":"x86_64-apple-darwin","bundles":"dmg"}]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -94,7 +91,7 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          dependencies=$(otool -L "src-tauri/target/${{ matrix.target }}/release/bundle/macos/lazysync.app/Contents/MacOS/lazysync")
+          dependencies=$(otool -L "src-tauri/target/${{ matrix.target }}/release/lazysync")
           printf '%s\n' "$dependencies"
           if printf '%s\n' "$dependencies" | grep -Eq '/opt/homebrew|/usr/local/opt'; then
             echo 'Unexpected Homebrew runtime dependency in app bundle.'
