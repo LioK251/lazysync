@@ -811,6 +811,52 @@ fn incoming_lfs_and_local_submodules_are_blocked() {
         "submodules"
     );
 }
+
+#[test]
+fn nested_repositories_are_named_before_staging_and_ignored_ones_are_preserved() {
+    let f = Fixture::new(false);
+    let root = Path::new(&f.folder);
+    let nested = root.join("projects/nested");
+    fs::create_dir_all(&nested).unwrap();
+    let inner = Repository::init(&nested).unwrap();
+    fs::write(nested.join("keep.txt"), b"nested project\n").unwrap();
+    git::command(&nested, &["add", "-A"], Some(&f.settings)).unwrap();
+    git::command(
+        &nested,
+        &["commit", "-m", "nested history"],
+        Some(&f.settings),
+    )
+    .unwrap();
+    let inner_head = git::head(&inner);
+    f.write("parent.txt", b"parent project\n");
+    let before = git::command(root, &["ls-files", "--stage", "-z"], None).unwrap();
+    let error = f.engine().start(&f.mapping, |_| {}).unwrap_err();
+    assert_eq!(error.code, "nestedRepositories");
+    assert!(error.message.contains("projects/nested"));
+    assert_eq!(
+        before,
+        git::command(root, &["ls-files", "--stage", "-z"], None).unwrap()
+    );
+    assert!(f.storage.journal().unwrap().is_none());
+    f.cmd(&["add", "-A"]);
+    let staged = f.engine().start(&f.mapping, |_| {}).unwrap_err();
+    assert_eq!(staged.code, "submodules");
+    assert!(staged.message.contains("projects/nested"));
+    f.cmd(&["rm", "--cached", "-f", "--", "projects/nested"]);
+    f.write(".gitignore", b"/projects/nested/\n");
+    f.engine().start(&f.mapping, |_| {}).unwrap();
+    assert_eq!(git::head(&inner), inner_head);
+    assert_eq!(
+        fs::read(nested.join("keep.txt")).unwrap(),
+        b"nested project\n"
+    );
+    assert!(!git::open(&f.folder)
+        .unwrap()
+        .index()
+        .unwrap()
+        .iter()
+        .any(|e| e.mode == 0o160000));
+}
 #[test]
 fn signing_filters_and_nonempty_clone_are_blocked() {
     let f = Fixture::new(true);

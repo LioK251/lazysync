@@ -46,6 +46,8 @@ GitHub blocks files larger than 100 MiB. Sync checks included files before writi
 
 ## Safe sync and recovery
 
+Folders with their own `.git` repositories must be synced separately or excluded from the parent checkout. Lazysync checks included paths before staging, names nested repositories and staged repository links, and keeps their histories intact. Ignoring an already staged link also requires removing that link from the parent index in a Git client (`git rm --cached`); never delete a nested project's `.git` directory to work around this check.
+
 The repository worker serializes operations. Sync validates checkout state, branch, upstream, identity, remote, and token access; writes a durable journal; preserves original HEAD under `refs/lazysync/backups/<operation>/original`; saves tracked/untracked changes in an app-marked stash; fetches; fast-forwards or rebases; applies the saved stash without dropping it; stages actual additions/modifications/deletions respecting ignores; commits; and pushes normally. Non-fast-forward rejection allows at most two refetch/rebase retries. Push acceptance is checked with a fetch before removing only the app-created stash. Recovery references are retained, including references before rebases. Empty syncs create no commit. Initial commits and empty remotes are supported.
 
 Commits use `Sync from [DeviceName] - YYYY-MM-DD HH:mm`, with timezone offset and operation ID in the body. Local commits survive network/authentication failures. No force push, hard reset, forced checkout, stash pop, automatic user-file deletion, or deletion of user stashes is used.
@@ -80,7 +82,7 @@ Rust tests use temporary checkouts and bare remotes; GitHub requests use a local
 
 Windows: `npm run tauri build -- --bundles nsis,msi`. macOS: `npm run tauri build -- --bundles dmg`. Native bundles live in `src-tauri/target/release/bundle`. Icons are generated with Tauri tooling; the existing root `test.rs` is preserved.
 
-Tag `v0.2.3` to run release CI. It verifies repository privacy, creates a draft release, builds Windows x64 `.exe`/`.msi` and Apple Silicon/Intel `.dmg`, attaches artifacts, and publishes only after every platform succeeds. The repository is never made public. See [Tauri distribution](https://v2.tauri.app/distribute/) and [Tauri GitHub Action](https://github.com/tauri-apps/tauri-action).
+Tag `v0.2.4` to run release CI. It verifies repository privacy, creates a draft release, builds Windows x64 `.exe`/`.msi` and Apple Silicon/Intel `.dmg`, attaches artifacts, and publishes only after every platform succeeds. The repository is never made public. See [Tauri distribution](https://v2.tauri.app/distribute/) and [Tauri GitHub Action](https://github.com/tauri-apps/tauri-action).
 
 ## Optional signing
 

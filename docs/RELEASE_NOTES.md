@@ -1,4 +1,10 @@
-lazysync 0.2.3 adds file size information and includes the fix for repository operations getting stuck behind background checks on large folders.
+lazysync 0.2.4 catches nested Git repositories before they can be accidentally staged as submodules during an initial sync.
+
+- Included nested repositories are detected and named before backup, stash, or staging begins.
+- Submodule errors name the affected paths and explain how to sync them separately or exclude staged links while keeping their files and histories.
+- A retry clears the previous error while validation and sync progress are displayed.
+
+File size information and the fixes for repository operations getting stuck behind background checks are included.
 
 - File sizes are visible in the ignore picker and Difference checker, including separate Local and Cloud sizes.
 - Sizes reflect full files, even for binary files and truncated previews; hover to see the exact byte count.

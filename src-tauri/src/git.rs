@@ -188,13 +188,6 @@ pub fn preflight(r: &Repository, mapping: &RepositoryMapping, allow_rebase: bool
             "Use your Git client for this signing workflow.",
         ));
     }
-    if !r.submodules()?.is_empty() || r.workdir().unwrap().join(".gitmodules").exists() {
-        return Err(AppError::new(
-            "submodules",
-            "Submodules are unsupported.",
-            "Synchronize this repository with your Git client.",
-        ));
-    }
     // Having Git LFS installed globally does not mean this checkout uses LFS.
     // Inspect effective attributes for each relevant path, including global/info attributes.
     let attrs = command(
@@ -208,6 +201,7 @@ pub fn preflight(r: &Repository, mapping: &RepositoryMapping, allow_rebase: bool
         ],
         None,
     )?;
+    validate_repository_links(r, &attrs)?;
     let mut active_filter = false;
     for path in attrs.split(|b| *b == 0).filter(|p| !p.is_empty()) {
         let name = String::from_utf8_lossy(path);
@@ -299,6 +293,51 @@ pub fn preflight(r: &Repository, mapping: &RepositoryMapping, allow_rebase: bool
             "upstream",
             "Branch upstream differs from the selected branch on origin.",
             "Review and reconnect the branch.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_repository_links(r: &Repository, paths: &[u8]) -> Result<()> {
+    let root = r.workdir().unwrap();
+    let mut links = std::collections::BTreeSet::new();
+    for entry in r.index()?.iter().filter(|e| e.mode == 0o160000) {
+        links.insert(String::from_utf8_lossy(&entry.path).into_owned());
+    }
+    for submodule in r.submodules()? {
+        links.insert(submodule.path().to_string_lossy().into_owned());
+    }
+    if !links.is_empty() || root.join(".gitmodules").exists() {
+        return Err(AppError::new(
+            "submodules",
+            format!("Submodules or staged repository links are unsupported: {}.",
+                if links.is_empty() { ".gitmodules".into() } else { links.into_iter().collect::<Vec<_>>().join(", ") }),
+            "Sync these projects separately. To exclude a staged repository link, first remove only that link from the parent Git index, then ignore its folder. Keep its files and .git history intact; do not delete .git folders.",
+        ));
+    }
+    // Git add -A turns an untracked embedded repository into a gitlink. Detect it before any
+    // backup, stash, or staging step, checking only included paths and caching ancestor visits.
+    let mut checked = std::collections::HashSet::new();
+    let mut nested = std::collections::BTreeSet::new();
+    for path in paths.split(|b| *b == 0).filter(|p| !p.is_empty()) {
+        let name = String::from_utf8_lossy(path);
+        let relative = Path::new(name.as_ref());
+        let mut directory = Some(relative);
+        while let Some(dir) = directory.filter(|p| !p.as_os_str().is_empty()) {
+            if !checked.insert(dir.to_path_buf()) {
+                break;
+            }
+            if root.join(dir).join(".git").exists() {
+                nested.insert(dir.to_string_lossy().replace('\\', "/"));
+            }
+            directory = dir.parent();
+        }
+    }
+    if !nested.is_empty() {
+        return Err(AppError::new(
+            "nestedRepositories",
+            format!("These included folders have their own Git repositories: {}.", nested.into_iter().collect::<Vec<_>>().join(", ")),
+            "Ignore those folders in Repository settings and sync them separately, or use a Git client for a submodule workflow. No files have been staged or uploaded by this sync. Keep their .git folders intact.",
         ));
     }
     Ok(())

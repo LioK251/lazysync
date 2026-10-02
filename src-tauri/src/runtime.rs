@@ -408,6 +408,7 @@ impl Service {
         self.remember(updated)
     }
     pub fn sync(&mut self, resume: bool) -> Result<StatusSnapshot> {
+        self.status.error = None;
         self.status.phase = "validating".into();
         self.status.label = "Checking repository access".into();
         self.publish();
