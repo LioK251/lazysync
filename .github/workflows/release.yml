@@ -62,16 +62,27 @@ jobs:
       - run: npm run test:rust
       - run: npm run check
       - run: npm test
-      - name: Build and attach installers to private draft
-        uses: tauri-apps/tauri-action@v1
+      - name: Load signing credentials only when configured
+        if: runner.os == 'macOS'
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for key in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [[ -n "${!key}" ]]; then
+              delimiter="lazysync_${RANDOM}_${RANDOM}"
+              { printf '%s<<%s\n' "$key" "$delimiter"; printf '%s\n' "${!key}"; printf '%s\n' "$delimiter"; } >> "$GITHUB_ENV"
+            fi
+          done
+      - name: Build and attach installers to private draft
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           releaseId: ${{ needs.prepare.outputs.release_id }}
           tagName: ${{ needs.prepare.outputs.tag }}
