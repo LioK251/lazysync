@@ -277,39 +277,41 @@ impl Service {
         self.mutable()?;
         self.check_folder(&folder)?;
         let token = self.vault.get()?;
-        if self.settings.pending_setup.is_none() {
-            self.settings.pending_setup = Some(PendingSetup {
-                name: name.clone(),
-                description: description.clone(),
-                folder: folder.clone(),
-                remote: None,
-            });
-            self.storage.save_settings(&self.settings)?;
-            let remote = self.github.create_private(&token, &name, &description)?;
-            self.settings.pending_setup.as_mut().unwrap().remote = Some(remote);
-            self.storage.save_settings(&self.settings)?;
-        } else {
-            let p = self.settings.pending_setup.as_ref().unwrap();
-            if p.name != name || p.folder != folder {
-                return Err(AppError::new(
-                    "pendingSetup",
-                    "A previous private repository setup is unfinished.",
-                    "Resume its setup from the Create Repository dialog.",
-                ));
-            }
-            // Reconcile a possibly accepted POST using GET; never repeat an uncertain creation.
-            if p.remote.is_none() {
-                let login = self.github.identity(&token)?.login;
-                let remote = self.github.repository(&token, &format!("{login}/{name}"))?;
-                if !remote.private {
-                    return Err(AppError::new(
-                        "pendingSetup",
-                        "The matching repository is public.",
-                        "Review it on GitHub; connect deliberately through the picker.",
-                    ));
-                }
+        match self.settings.pending_setup.clone() {
+            None => {
+                self.settings.pending_setup = Some(PendingSetup {
+                    name: name.clone(),
+                    description: description.clone(),
+                    folder: folder.clone(),
+                    remote: None,
+                });
+                self.storage.save_settings(&self.settings)?;
+                let remote = self.github.create_private(&token, &name, &description)?;
                 self.settings.pending_setup.as_mut().unwrap().remote = Some(remote);
                 self.storage.save_settings(&self.settings)?;
+            }
+            Some(p) => {
+                if p.name != name || p.folder != folder {
+                    return Err(AppError::new(
+                        "pendingSetup",
+                        "A previous private repository setup is unfinished.",
+                        "Resume its setup from the Create Repository dialog.",
+                    ));
+                }
+                // Reconcile a possibly accepted POST using GET; never repeat an uncertain creation.
+                if p.remote.is_none() {
+                    let login = self.github.identity(&token)?.login;
+                    let remote = self.github.repository(&token, &format!("{login}/{name}"))?;
+                    if !remote.private {
+                        return Err(AppError::new(
+                            "pendingSetup",
+                            "The matching repository is public.",
+                            "Review it on GitHub; connect deliberately through the picker.",
+                        ));
+                    }
+                    self.settings.pending_setup.as_mut().unwrap().remote = Some(remote);
+                    self.storage.save_settings(&self.settings)?;
+                }
             }
         }
         let remote = self

@@ -249,7 +249,7 @@ pub fn run() {
         })
         .on_window_event(|window,event|match event {
             tauri::WindowEvent::CloseRequested { api,.. }=> { api.prevent_close(); let _=window.hide(); },
-            tauri::WindowEvent::Focused(false)=> { if !window.state::<DialogGuard>().0.load(Ordering::SeqCst) { let _=window.hide(); } }, _=>{}
+            tauri::WindowEvent::Focused(false) if !window.state::<DialogGuard>().0.load(Ordering::SeqCst)=> { let _=window.hide(); }, _=>{}
         })
         .invoke_handler(tauri::generate_handler![get_settings,get_status,authenticate,save_settings,list_repositories,connect_repository,clone_repository,select_repository,create_repository,abandon_setup,reconfirm_branch,sync_now,continue_sync,get_history,get_diffs,get_conflicts,resolve_conflict,finish_recovery,set_dialog_open,quit,open_conflict_editor])
         .run(tauri::generate_context!()).expect("lazysync desktop runtime");

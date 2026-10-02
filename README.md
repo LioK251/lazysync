@@ -1,4 +1,4 @@
-﻿# lazysync
+# lazysync
 
 A compact Windows/macOS tray companion that syncs one selected GitHub checkout at a time. Svelte 5, TypeScript, Tailwind 4, Tauri 2, Rust, libgit2, and the native credential vault.
 
@@ -62,7 +62,7 @@ Rust tests use temporary checkouts and bare remotes; GitHub requests use a local
 
 Windows: `npm run tauri build -- --bundles nsis,msi`. macOS: `npm run tauri build -- --bundles dmg`. Native bundles live in `src-tauri/target/release/bundle`. Icons are generated with Tauri tooling; the existing root `test.rs` is preserved.
 
-Tag `v0.1.2` to run release CI. It verifies repository privacy, creates a draft release, builds Windows x64 `.exe`/`.msi` and Apple Silicon/Intel `.dmg`, attaches artifacts, and publishes only after every platform succeeds. The repository is never made public. See [Tauri distribution](https://v2.tauri.app/distribute/) and [Tauri GitHub Action](https://github.com/tauri-apps/tauri-action).
+Tag `v0.1.3` to run release CI. It verifies repository privacy, creates a draft release, builds Windows x64 `.exe`/`.msi` and Apple Silicon/Intel `.dmg`, attaches artifacts, and publishes only after every platform succeeds. The repository is never made public. See [Tauri distribution](https://v2.tauri.app/distribute/) and [Tauri GitHub Action](https://github.com/tauri-apps/tauri-action).
 
 ## Optional signing
 
