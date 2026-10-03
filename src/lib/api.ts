@@ -63,6 +63,8 @@ type Commands = {
     IgnoreSettings,
   ];
   set_comparison_open: [{ open: boolean }, void];
+  resize_window_by: [{ width: number; height: number }, void];
+  persist_window_size: [undefined, void];
   get_conflicts: [undefined, Conflict[]];
   resolve_conflict: [
     { path: string; choice: 'local' | 'remote' | 'edited' },
@@ -109,7 +111,11 @@ export async function chooseFolder(): Promise<string | null> {
 export async function hide(): Promise<void> {
   if (isTauri()) {
     const { getCurrentWindow } = await import('@tauri-apps/api/window');
-    await getCurrentWindow().hide();
+    try {
+      await call('persist_window_size');
+    } finally {
+      await getCurrentWindow().hide();
+    }
   }
 }
 export function errorOf(e: unknown): AppError {

@@ -14,6 +14,7 @@
   import StatusIndicator from './components/StatusIndicator.svelte';
   import ErrorMessage from './components/ErrorMessage.svelte';
   import DifferenceChecker from './components/DifferenceChecker.svelte';
+  import ResizeGrip from './components/ResizeGrip.svelte';
   let settings = $state<Settings | null>(null);
   let status = $state<StatusSnapshot | null>(null);
   let panel = $state<
@@ -255,6 +256,7 @@
         >{/if}
     </div>
   </main>
+  <ResizeGrip />
 </div>
 {#if panel}<Modal
     {title}

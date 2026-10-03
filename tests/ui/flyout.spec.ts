@@ -25,6 +25,7 @@ test('compact flyout, pending diff, history, and sync feedback', async ({
   await expect(
     page.getByRole('button', { name: 'Quit', exact: true }),
   ).toHaveCount(0);
+  await page.screenshot({ path: 'docs/flyout.png' });
   await page.setViewportSize({ width: 1120, height: 640 });
   await page
     .getByRole('button', { name: 'Difference checker', exact: true })
@@ -37,6 +38,7 @@ test('compact flyout, pending diff, history, and sync feedback', async ({
   const comparison = await page.locator('.difference-checker').boundingBox();
   const flyout = await page.locator('.flyout').boundingBox();
   expect(comparison!.x + comparison!.width).toBeLessThanOrEqual(flyout!.x);
+  expect(flyout!.width).toBe(340);
   await page.screenshot({ path: 'docs/difference-checker.png' });
   await page.getByRole('button', { name: /cover.png/ }).click();
   await expect(
@@ -66,6 +68,141 @@ test('compact flyout, pending diff, history, and sync feedback', async ({
   await expect(
     page.getByText('All changes synced', { exact: true }),
   ).toBeVisible();
+});
+
+test('resized flyout and dialogs fill the window and keep the grip reachable', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 520, height: 720 });
+  const flyout = await page.locator('.flyout').boundingBox();
+  expect(flyout!.width).toBe(520);
+  expect(flyout!.height).toBe(720);
+  await page.getByRole('button', { name: /Repository.*field-notes/ }).click();
+  const remembered = page.getByText('C:\\Projects\\field-notes', {
+    exact: true,
+  });
+  await expect(remembered).toBeVisible();
+  await expect(remembered).toHaveAttribute(
+    'title',
+    'C:\\Projects\\field-notes',
+  );
+  const dialog = await page.getByRole('dialog').boundingBox();
+  expect(dialog!.width).toBe(520);
+  expect(dialog!.height).toBe(720);
+  const grip = page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Resize window', exact: true });
+  await grip.focus();
+  await expect(grip).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect(page.getByText(/Could not resize/)).toHaveCount(0);
+  await page.setViewportSize({ width: 340, height: 460 });
+  await expect(grip).toBeInViewport();
+  await page
+    .getByRole('button', { name: 'Create private repository', exact: true })
+    .click();
+  await page
+    .getByRole('textbox', { name: 'Local folder', exact: true })
+    .fill('\\\\?\\C:\\hard drive\\Scripts');
+  await expect(
+    page.getByRole('textbox', { name: 'Local folder', exact: true }),
+  ).toHaveValue('C:\\hard drive\\Scripts');
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 1380, height: 780 });
+  await page
+    .getByRole('button', { name: 'Difference checker', exact: true })
+    .click();
+  await expect(
+    page.getByRole('region', { name: 'Difference checker', exact: true }),
+  ).toBeVisible();
+  expect((await page.locator('.flyout').boundingBox())!.width).toBe(340);
+  expect((await page.locator('.app-shell').boundingBox())!.width).toBe(1380);
+});
+
+test('native resize commands support mouse, keyboard, dialog sizing, and saving before hide', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const scope = window as unknown as {
+      isTauri: boolean;
+      commands: { command: string; args: unknown }[];
+      __TAURI_INTERNALS__: unknown;
+    };
+    scope.isTauri = true;
+    scope.commands = [];
+    scope.__TAURI_INTERNALS__ = {
+      metadata: { currentWindow: { label: 'main' } },
+      transformCallback: () => 1,
+      invoke: async (command: string, args: unknown) => {
+        scope.commands.push({ command, args });
+        if (command === 'plugin:dialog|open')
+          return '\\\\?\\C:\\hard drive\\Scripts';
+        if (command.startsWith('plugin:')) return 0;
+        const modulePath = '/src/lib/preview.ts';
+        const fixture = await import(modulePath);
+        return fixture.callPreview(command, args);
+      },
+    };
+  });
+  await page.goto('/');
+  const grip = page.getByRole('button', { name: 'Resize window', exact: true });
+  await grip.click();
+  await grip.press('ArrowRight');
+  await grip.press('Shift+ArrowDown');
+  await grip.press('ArrowLeft');
+  await grip.press('ArrowUp');
+  await page.getByRole('button', { name: /Repository.*field-notes/ }).click();
+  await page
+    .getByRole('button', { name: 'Create private repository', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Choose local folder' }).click();
+  await expect(
+    page.getByRole('textbox', { name: 'Local folder', exact: true }),
+  ).toHaveValue('C:\\hard drive\\Scripts');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Resize window', exact: true })
+    .press('Shift+ArrowRight');
+  await page.keyboard.press('Escape');
+  await page
+    .getByRole('button', { name: 'Hide lazysync', exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as unknown as { commands: { command: string }[] }).commands
+          .filter((c) =>
+            ['persist_window_size', 'plugin:window|hide'].includes(c.command),
+          )
+          .map((c) => c.command),
+      ),
+    )
+    .toEqual(['persist_window_size', 'plugin:window|hide']);
+  const commands = await page.evaluate(
+    () =>
+      (window as unknown as { commands: { command: string; args: unknown }[] })
+        .commands,
+  );
+  expect(
+    commands.some((c) => c.command === 'plugin:window|start_resize_dragging'),
+  ).toBe(true);
+  expect(
+    commands.filter((c) => c.command === 'resize_window_by').map((c) => c.args),
+  ).toEqual([
+    { width: 16, height: 0 },
+    { width: 0, height: 64 },
+    { width: -16, height: 0 },
+    { width: 0, height: -16 },
+    { width: 64, height: 0 },
+  ]);
+  expect(
+    commands
+      .filter((c) =>
+        ['persist_window_size', 'plugin:window|hide'].includes(c.command),
+      )
+      .map((c) => c.command),
+  ).toEqual(['persist_window_size', 'plugin:window|hide']);
 });
 test('picker search, write permissions, private creation form', async ({
   page,

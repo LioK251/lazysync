@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
+  import ResizeGrip from './ResizeGrip.svelte';
   import type { Snippet } from 'svelte';
   import { call } from '../lib/api';
   let {
@@ -35,4 +36,5 @@
     <h2 data-tauri-drag-region>{title}</h2>
   </header>
   <div class="panel-body">{@render children()}</div>
+  <ResizeGrip />
 </dialog>

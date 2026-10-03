@@ -4,6 +4,7 @@
   import { call, chooseFolder, errorOf } from '../lib/api';
   import type { Settings, RemoteRepository, AppError } from '../lib/models';
   import ErrorMessage from './ErrorMessage.svelte';
+  import { displayPath } from '../lib/paths';
   let {
     settings,
     onchange,
@@ -87,7 +88,9 @@
   <div class="folder-input">
     <input
       id="checkout-folder"
-      bind:value={folder}
+      value={displayPath(folder)}
+      oninput={(e) => (folder = e.currentTarget.value)}
+      title={displayPath(folder)}
       placeholder="Choose a folder"
     /><button
       class="icon-button"
@@ -118,7 +121,8 @@
         onclick={() => select(mapping.remote.id)}
         ><Icon name="folder" size={18} /><span
           ><strong>{mapping.remote.fullName}</strong><small
-            title={mapping.folder}>{mapping.folder}</small
+            title={displayPath(mapping.folder)}
+            >{displayPath(mapping.folder)}</small
           ></span
         >{#if mapping.remote.id === settings.activeId}<span class="badge"
             >Active</span

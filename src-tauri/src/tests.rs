@@ -750,7 +750,14 @@ fn partial_private_setup_resumes_without_duplicate_creation() {
         .remote_set_url("origin", "https://github.com/test/repo.git")
         .unwrap();
     let next = service
-        .create("repo".into(), "description".into(), f.folder.clone())
+        .create(
+            "repo".into(),
+            "description".into(),
+            Path::new(&f.folder)
+                .join(".")
+                .to_string_lossy()
+                .into_owned(),
+        )
         .unwrap();
     assert_eq!(next.active_id.as_deref(), Some("1"));
     assert!(next.pending_setup.is_none());
@@ -952,6 +959,48 @@ fn selection_persistence_and_recovery_blocks_switch() {
         })
     }));
     assert_eq!(service.select("1".into()).unwrap_err().code, "recovery");
+}
+#[test]
+fn folder_alias_cannot_create_a_second_repository_mapping() {
+    let f = Fixture::new(true);
+    let mut settings = f.settings.clone();
+    settings.repositories = vec![RepositoryMapping {
+        folder: fs::canonicalize(&f.folder)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned(),
+        ..f.mapping.clone()
+    }];
+    settings.active_id = Some(f.mapping.remote.id.clone());
+    f.storage.save_settings(&settings).unwrap();
+    let original = git::head(&git::open(&f.folder).unwrap());
+    let mut service = crate::runtime::Service::new(
+        f.storage.clone(),
+        Arc::new(MemoryVault(std::sync::Mutex::new("secret".into()))),
+        GitHub::new().unwrap(),
+        Arc::new(|_| {}),
+    )
+    .unwrap();
+    assert_eq!(
+        service
+            .create(
+                "second".into(),
+                String::new(),
+                Path::new(&f.folder)
+                    .join(".")
+                    .to_string_lossy()
+                    .into_owned()
+            )
+            .unwrap_err()
+            .code,
+        "folderMapped"
+    );
+    assert!(service.settings.pending_setup.is_none());
+    assert_eq!(
+        serde_json::to_value(f.storage.load_settings().unwrap().repositories).unwrap(),
+        serde_json::to_value(settings.repositories).unwrap()
+    );
+    assert_eq!(git::head(&git::open(&f.folder).unwrap()), original);
 }
 #[test]
 fn cloud_comparison_includes_unpushed_commits_and_pending_files() {

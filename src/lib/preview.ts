@@ -13,7 +13,7 @@ let settings: Settings = {
   repositories: [
     {
       remote,
-      folder: 'C:\\Projects\\field-notes',
+      folder: '\\\\?\\C:\\Projects\\field-notes',
       branch: 'main',
       lastSync: new Date(Date.now() - 240000).toISOString(),
     },
@@ -187,6 +187,8 @@ export async function callPreview(
       return structuredClone(status);
     case 'set_dialog_open':
     case 'set_comparison_open':
+    case 'resize_window_by':
+    case 'persist_window_size':
     case 'quit':
       return;
     default:

@@ -145,36 +145,29 @@ async fn save_ignore_settings(
     work(&w, true, move |s| s.save_ignores(patterns, revision)).await
 }
 #[tauri::command]
-fn set_comparison_open(window: tauri::WebviewWindow, open: bool) -> Result<()> {
-    let monitor = window.current_monitor()?.ok_or_else(|| {
-        AppError::new(
-            "monitor",
-            "No screen is available.",
-            "Move the app to an active screen.",
-        )
-    })?;
-    let scale = monitor.scale_factor();
-    let origin = monitor.position();
-    let size = monitor.size();
-    let old = window.outer_position()?;
-    let old_width = window.inner_size()?.width as i32;
-    let width = ((if open { 1120.0 } else { 340.0 }) * scale)
-        .min(size.width as f64 - 16.0)
-        .max(1.0) as u32;
-    let height = ((if open { 640.0 } else { 460.0 }) * scale)
-        .min(size.height as f64 - 64.0)
-        .max(1.0) as u32;
-    let x = (old.x + old_width - width as i32).clamp(
-        origin.x + 8,
-        origin.x + size.width as i32 - width as i32 - 8,
-    );
-    let y = old.y.clamp(
-        origin.y + 8,
-        origin.y + size.height as i32 - height as i32 - 8,
-    );
-    window.set_size(tauri::PhysicalSize::new(width, height))?;
-    window.set_position(tauri::PhysicalPosition::new(x, y))?;
-    Ok(())
+fn set_comparison_open(
+    window: tauri::WebviewWindow,
+    state: State<'_, crate::window_state::WindowState>,
+    open: bool,
+) -> Result<()> {
+    crate::desktop_window::set_expanded(&window.as_ref().window(), &state, open)
+}
+#[tauri::command]
+fn resize_window_by(
+    window: tauri::WebviewWindow,
+    state: State<'_, crate::window_state::WindowState>,
+    width: f64,
+    height: f64,
+) -> Result<()> {
+    crate::desktop_window::resize_by(&window.as_ref().window(), &state, width, height)
+}
+#[tauri::command]
+fn persist_window_size(
+    window: tauri::WebviewWindow,
+    state: State<'_, crate::window_state::WindowState>,
+) -> Result<()> {
+    crate::desktop_window::capture(&window.as_ref().window(), &state)?;
+    state.flush()
 }
 #[tauri::command]
 async fn abandon_setup(w: State<'_, Worker>) -> Result<Settings> {
@@ -295,37 +288,8 @@ fn tray_icon(color: [u8; 3]) -> Image<'static> {
 }
 fn show(app: &tauri::AppHandle, position: Option<tauri::PhysicalPosition<f64>>) {
     if let Some(w) = app.get_webview_window("main") {
-        if let Some(p) = position {
-            if let Ok(monitors) = w.available_monitors() {
-                for m in monitors {
-                    let origin = m.position();
-                    let size = m.size();
-                    if p.x >= origin.x as f64
-                        && p.x < origin.x as f64 + size.width as f64
-                        && p.y >= origin.y as f64
-                        && p.y < origin.y as f64 + size.height as f64
-                    {
-                        let scale = m.scale_factor();
-                        let current = w.inner_size().ok();
-                        let width = current
-                            .map_or((340.0 * scale) as i32, |s| s.width as i32)
-                            .min(size.width as i32 - 16);
-                        let height = current
-                            .map_or((460.0 * scale) as i32, |s| s.height as i32)
-                            .min(size.height as i32 - 16);
-                        let x = (p.x as i32 - width / 2)
-                            .clamp(origin.x + 8, origin.x + size.width as i32 - width - 8);
-                        let y = (if p.y < origin.y as f64 + size.height as f64 / 2.0 {
-                            p.y as i32 + 24
-                        } else {
-                            p.y as i32 - height - 24
-                        })
-                        .clamp(origin.y + 8, origin.y + size.height as i32 - height - 8);
-                        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
-                        break;
-                    }
-                }
-            }
+        if let Some(state) = app.try_state::<crate::window_state::WindowState>() {
+            let _ = crate::desktop_window::fit(&w.as_ref().window(), &state, position);
         }
         let _ = w.show();
         let _ = w.set_focus();
@@ -338,6 +302,14 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init()).plugin(tauri_plugin_notification::init())
         .manage(DialogGuard(AtomicBool::new(false)))
         .setup(|app| {
+            let errors=app.handle().clone();
+            app.manage(crate::window_state::WindowState::load(app.path().app_config_dir()?.join("window-state.json"), move || {
+                let _=errors.notification().builder().title("lazysync window size could not be saved").body("Check configuration folder permissions and disk space.").show();
+            }));
+            if let Some(window)=app.get_webview_window("main") {
+                crate::desktop_window::fit(&window.as_ref().window(), &app.state::<crate::window_state::WindowState>(), None)?;
+                window.show()?;
+            }
             let handle=app.handle().clone();
             let emit=Arc::new(move|status:StatusSnapshot| {
                 let _=handle.emit("lazysync:status:v1",&status);
@@ -358,8 +330,27 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window,event| {
-            if let tauri::WindowEvent::CloseRequested { api,.. } = event { api.prevent_close(); let _=window.hide(); }
+            if let Some(state) = window.app_handle().try_state::<crate::window_state::WindowState>() {
+                match event {
+                    tauri::WindowEvent::Resized(size) => {
+                        // Ignore queued events whose dimensions no longer match the actual window.
+                        if window.inner_size().ok().as_ref() == Some(size) {
+                            let scale=window.scale_factor().unwrap_or(1.0);
+                            if state.scale_changed(scale) { let _=crate::desktop_window::fit(window, &state, None); }
+                            else { state.observe((size.width, size.height), scale); }
+                            if size.width > 0 && size.height > 0 { let _=crate::desktop_window::clamp_position(window); }
+                        }
+                    }
+                    tauri::WindowEvent::ScaleFactorChanged { .. } => { let _=crate::desktop_window::fit(window, &state, None); }
+                    tauri::WindowEvent::Moved(_) => { let _=crate::desktop_window::refit_if_monitor_changed(window, &state); }
+                    tauri::WindowEvent::CloseRequested { api,.. } => {
+                        api.prevent_close(); crate::desktop_window::flush(window.app_handle()); let _=window.hide();
+                    }
+                    _ => {}
+                }
+            }
         })
-        .invoke_handler(tauri::generate_handler![get_settings,get_status,authenticate,save_settings,list_repositories,connect_repository,clone_repository,select_repository,create_repository,abandon_setup,reconfirm_branch,sync_now,continue_sync,get_history,get_diffs,get_conflicts,resolve_conflict,finish_recovery,set_dialog_open,quit,open_conflict_editor,get_comparison_files,get_file_comparison,get_ignore_settings,get_folder_entries,save_ignore_settings,set_comparison_open])
-        .run(tauri::generate_context!()).expect("lazysync desktop runtime");
+        .invoke_handler(tauri::generate_handler![get_settings,get_status,authenticate,save_settings,list_repositories,connect_repository,clone_repository,select_repository,create_repository,abandon_setup,reconfirm_branch,sync_now,continue_sync,get_history,get_diffs,get_conflicts,resolve_conflict,finish_recovery,set_dialog_open,quit,open_conflict_editor,get_comparison_files,get_file_comparison,get_ignore_settings,get_folder_entries,save_ignore_settings,set_comparison_open,resize_window_by,persist_window_size])
+        .build(tauri::generate_context!()).expect("lazysync desktop runtime")
+        .run(|app,event| { if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) { crate::desktop_window::flush(app); } });
 }

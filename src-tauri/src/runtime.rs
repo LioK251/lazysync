@@ -239,7 +239,7 @@ impl Service {
             .settings
             .repositories
             .iter()
-            .any(|m| m.folder == folder)
+            .any(|m| crate::paths::same_folder(&m.folder, folder))
         {
             return Err(AppError::new(
                 "folderMapped",
@@ -306,7 +306,7 @@ impl Service {
                 self.storage.save_settings(&self.settings)?;
             }
             Some(p) => {
-                if p.name != name || p.folder != folder {
+                if p.name != name || !crate::paths::same_folder(&p.folder, &folder) {
                     return Err(AppError::new(
                         "pendingSetup",
                         "A previous private repository setup is unfinished.",

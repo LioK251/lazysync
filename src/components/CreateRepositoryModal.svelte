@@ -4,6 +4,7 @@
   import type { Settings, AppError } from '../lib/models';
   import ErrorMessage from './ErrorMessage.svelte';
   import IgnoreEditor from './IgnoreEditor.svelte';
+  import { displayPath } from '../lib/paths';
   let {
     settings,
     onchange,
@@ -78,7 +79,9 @@
     <input
       id="new-folder"
       required
-      bind:value={folder}
+      value={displayPath(folder)}
+      oninput={(e) => (folder = e.currentTarget.value)}
+      title={displayPath(folder)}
       disabled={!!settings.pendingSetup}
       placeholder="Choose your project folder"
     /><button

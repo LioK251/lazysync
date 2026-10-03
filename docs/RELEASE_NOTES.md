@@ -1,24 +1,14 @@
-lazysync 0.2.4 catches nested Git repositories before they can be accidentally staged as submodules during an initial sync.
+lazysync 0.2.5 adds resizable windows with saved sizes and clearer Windows folder paths.
 
-- Included nested repositories are detected and named before backup, stash, or staging begins.
-- Submodule errors name the affected paths and explain how to sync them separately or exclude staged links while keeping their files and histories.
-- A retry clears the previous error while validation and sync progress are displayed.
+- Resize from window edges or the monochrome bottom-right grip, including in setup and settings dialogs.
+- Focus the grip and use arrow keys to resize in 16-pixel steps, or Shift + arrows for 64-pixel steps.
+- Compact and Difference checker views remember separate sizes. Sizes save after resizing and when hiding or quitting; the checker stays anchored to the right edge when opened or closed.
+- Layouts fill the resized window, and usable monitor bounds account for taskbars and docks. Small screens and display scaling are handled without replacing remembered dimensions with automatically clamped sizes.
+- Windows folder labels and inputs show familiar paths without the extended-path prefix. Native operations retain long-path support, and equivalent folder paths cannot create duplicate mappings or prevent saved setup from resuming.
+- Window preferences live in a separate versioned, atomically saved window-state.json; repository settings, credentials, and recovery records are unaffected.
 
-File size information and the fixes for repository operations getting stuck behind background checks are included.
+The previous minimalist interface, syntax-highlighted Local/Cloud comparison, file size information, ignore editor, and sync safety fixes are included.
 
-- File sizes are visible in the ignore picker and Difference checker, including separate Local and Cloud sizes.
-- Sizes reflect full files, even for binary files and truncated previews; hover to see the exact byte count.
-- Files larger than 100 MiB have a clear label, and oversized-file errors include their sizes.
+Download the Windows x64 .exe installer (or .msi), or the .dmg for your Mac: aarch64 for Apple Silicon and x64 for Intel. Git must be installed and available on PATH.
 
-- Background checks no longer hash every file's contents; automation Off skips even the metadata fingerprint.
-- Manual actions queue behind routine checks. Status and settings remain readable while the worker is running.
-- Filesystem event storms are coalesced into one pending rescan and debounced.
-- Interrupted operations release the busy state while preserving recovery records and backups.
-- Sync displays readable operation stages and upload/receive progress, with limits on stalled network connections.
-- Before sync changes anything, included files over GitHub's 100 MiB limit are named with directions to the ignore settings.
-
-The minimalist interface, left-expanding syntax-highlighted Difference checker, ignore editor, and monochrome icons are included.
-
-Download the Windows x64 `.exe` installer (or `.msi`), or the `.dmg` for your Mac: `aarch64` for Apple Silicon and `x64` for Intel. Git must be installed and available on PATH.
-
-Installers built without signing secrets are unsigned and may prompt operating system trust warnings. This release does not include automatic updates.
+Installers built without signing secrets are unsigned. This release does not include automatic updates.
