@@ -1,14 +1,11 @@
-lazysync 0.2.6 adds resizable windows with saved sizes and clearer Windows folder paths.
+lazysync 0.2.7 fixes Windows sync failures while another process uses a project folder.
 
-- The visible resize grip uses a pointer-drag fallback on macOS, where the native grip API is unsupported.
-- Resize from window edges or the monochrome bottom-right grip, including in setup and settings dialogs.
-- Focus the grip and use arrow keys to resize in 16-pixel steps, or Shift + arrows for 64-pixel steps.
-- Compact and Difference checker views remember separate sizes. Sizes save after resizing and when hiding or quitting; the checker stays anchored to the right edge when opened or closed.
-- Layouts fill the resized window, and usable monitor bounds account for taskbars and docks. Small screens and display scaling are handled without replacing remembered dimensions with automatically clamped sizes.
-- Windows folder labels and inputs show familiar paths without the extended-path prefix. Native operations retain long-path support, and equivalent folder paths cannot create duplicate mappings or prevent saved setup from resuming.
-- Window preferences live in a separate versioned, atomically saved window-state.json; repository settings, credentials, and recovery records are unaffected.
+- Save local changes with native Git, avoiding libgit2's `Os/GenericError` when a terminal or development server uses a nested folder as its working directory.
+- Record the saved stash even if locked files prevent cleanup. Sync pauses with recovery instructions instead of continuing with a partially cleaned checkout.
+- Recover interrupted successful stashes by their operation marker. Existing user stashes and recovery backups remain protected.
+- Release builds support the repository's current visibility and publish only after all platform installers succeed.
 
-The previous minimalist interface, syntax-highlighted Local/Cloud comparison, file size information, ignore editor, and sync safety fixes are included.
+The resizable windows, saved window sizes, Local/Cloud comparison, ignored-file settings, and previous sync safety fixes are included.
 
 Download the Windows x64 .exe installer (or .msi), or the .dmg for your Mac: aarch64 for Apple Silicon and x64 for Intel. Git must be installed and available on PATH.
 

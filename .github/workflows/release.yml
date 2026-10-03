@@ -19,12 +19,11 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-      - name: Verify privacy and create draft release
+      - name: Verify version and create draft release
         id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          test "$(gh api repos/$GITHUB_REPOSITORY --jq .private)" = true
           VERSION=$(node -p "require('./package.json').version")
           TAG="v$VERSION"
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then TAG="$GITHUB_REF_NAME"; fi
@@ -76,7 +75,7 @@ jobs:
               { printf '%s<<%s\n' "$key" "$delimiter"; printf '%s\n' "${!key}"; printf '%s\n' "$delimiter"; } >> "$GITHUB_ENV"
             fi
           done
-      - name: Build and attach installers to private draft
+      - name: Build and attach installers to draft
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -115,7 +114,6 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          test "$(gh api repos/$GH_REPO --jq .private)" = true
           gh release view "$TAG" --json assets --jq '.assets[].name' > assets.txt
           grep -q '\.exe$' assets.txt
           grep -q 'aarch64.*\.dmg$' assets.txt

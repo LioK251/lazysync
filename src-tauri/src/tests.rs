@@ -176,6 +176,124 @@ fn clean_behind_fast_forward() {
         (0, 0)
     );
 }
+
+#[cfg(windows)]
+struct HeldWindowsProcess(std::process::Child);
+
+#[cfg(windows)]
+impl HeldWindowsProcess {
+    fn new(folder: &Path, script: &str) -> Self {
+        use std::{io::BufRead, os::windows::process::CommandExt, process::Stdio};
+        let child = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .current_dir(folder)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .creation_flags(0x08000000)
+            .spawn()
+            .unwrap();
+        let mut held = Self(child);
+        let mut ready = String::new();
+        std::io::BufReader::new(held.0.stdout.take().unwrap())
+            .read_line(&mut ready)
+            .unwrap();
+        assert_eq!(ready.trim(), "ready");
+        held
+    }
+}
+
+#[cfg(windows)]
+impl Drop for HeldWindowsProcess {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn sync_stashes_while_another_process_uses_a_nested_directory() {
+    let f = Fixture::new(true);
+    let project = Path::new(&f.folder).join("project");
+    fs::create_dir(&project).unwrap();
+    f.write("project/config.txt", b"base");
+    f.commit("project");
+    f.push();
+    f.write("project/new.txt", b"pending");
+    let _held = HeldWindowsProcess::new(
+        &project,
+        "[Console]::Out.WriteLine('ready'); [Console]::Out.Flush(); $null = [Console]::In.ReadLine()",
+    );
+    f.engine().start(&f.mapping, |_| {}).unwrap();
+    assert_eq!(fs::read(project.join("new.txt")).unwrap(), b"pending");
+    assert_eq!(fs::read(project.join("config.txt")).unwrap(), b"base");
+    assert!(f.storage.journal().unwrap().is_none());
+    let r = git::open(&f.folder).unwrap();
+    assert!(!git::dirty(&r).unwrap());
+    assert_eq!(git::ahead_behind(&r, "main").unwrap(), (0, 0));
+}
+
+#[cfg(windows)]
+#[test]
+fn partial_stash_failure_records_saved_work_and_never_replays() {
+    let f = Fixture::new(true);
+    f.write("notes.txt", b"changed");
+    f.write("new.txt", b"locked pending file");
+    let held = HeldWindowsProcess::new(
+        Path::new(&f.folder),
+        "$file = [IO.File]::Open('new.txt', [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read); [Console]::Out.WriteLine('ready'); [Console]::Out.Flush(); $null = [Console]::In.ReadLine(); $file.Dispose()",
+    );
+    let error = f.engine().start(&f.mapping, |_| {}).unwrap_err();
+    assert_eq!(error.code, "stashFailed");
+    assert!(error.action.contains("Recovery"));
+    let j = f.storage.journal().unwrap().unwrap();
+    assert_eq!(j.phase, "stash");
+    assert!(j.in_flight);
+    let stash = j.stash_oid.clone().expect("partial stash must be recorded");
+    let r = git::open(&f.folder).unwrap();
+    assert!(r.find_commit(git2::Oid::from_str(&stash).unwrap()).is_ok());
+    assert_eq!(git::head(&r), j.original_head);
+    assert_eq!(
+        fs::read(Path::new(&f.folder).join("new.txt")).unwrap(),
+        b"locked pending file"
+    );
+    drop(held);
+    assert!(f.engine().resume(&f.mapping, |_| {}).is_err());
+    assert_eq!(f.storage.journal().unwrap().unwrap().stash_oid, Some(stash));
+    let mut r = git::open(&f.folder).unwrap();
+    let mut count = 0;
+    r.stash_foreach(|_, _, _| {
+        count += 1;
+        true
+    })
+    .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn interrupted_successful_stash_is_found_by_operation_marker() {
+    let f = Fixture::new(true);
+    f.write("new.txt", b"recover");
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        f.engine().start(&f.mapping, |phase| {
+            if phase == "fetch" {
+                panic!("interrupted after stash");
+            }
+        })
+    }));
+    let mut j = f.storage.journal().unwrap().unwrap();
+    j.phase = "stash".into();
+    j.in_flight = true;
+    j.stash_oid = None;
+    f.storage.save_journal(&j).unwrap();
+    f.engine().resume(&f.mapping, |_| {}).unwrap();
+    assert_eq!(
+        fs::read(Path::new(&f.folder).join("new.txt")).unwrap(),
+        b"recover"
+    );
+    assert!(f.storage.journal().unwrap().is_none());
+}
 #[test]
 fn divergence_rebases_and_preserves_local_commit_backup() {
     let f = Fixture::new(true);

@@ -62,18 +62,12 @@ impl SyncEngine<'_> {
             // A stash can be reconciled by its unique operation marker without guessing.
             if j.phase == "stash" {
                 let mut r = git::open(&m.folder)?;
-                let mut found = None;
-                r.stash_foreach(|_, message, oid| {
-                    if message.contains(&j.operation_id) {
-                        found = Some(oid.to_string());
-                    }
-                    true
-                })?;
-                if let Some(oid) = found {
-                    if git::dirty(&r)? || git::head(&r) != j.original_head {
-                        return Err(paused("The checkout changed after the saved stash. Review it in your Git client before finishing recovery."));
-                    }
+                if let Some(oid) = operation_stash(&mut r, &j.operation_id)? {
                     j.stash_oid = Some(oid);
+                    self.storage.save_journal(&j)?;
+                    if git::dirty(&r)? || git::head(&r) != j.original_head {
+                        return Err(paused("The saved stash did not leave a clean, unchanged checkout. Preserve and reconcile your files in your Git client before using Finish Recovery."));
+                    }
                     j.phase = "fetch".into();
                     j.expected = git::fingerprint(&r)?;
                     j.in_flight = false;
@@ -198,16 +192,33 @@ impl SyncEngine<'_> {
                 }
                 "stash" => {
                     if git::head(&r).is_some() && git::dirty(&r)? {
-                        let sig = git2::Signature::now(
-                            &self.settings.commit_name,
-                            &self.settings.commit_email,
-                        )?;
-                        let oid = r.stash_save(
-                            &sig,
-                            &format!("lazysync {}", j.operation_id),
-                            Some(git2::StashFlags::INCLUDE_UNTRACKED),
-                        )?;
-                        j.stash_oid = Some(oid.to_string());
+                        // Native Git tolerates a process using a nested directory as its cwd.
+                        // libgit2 tries to remove its nonempty parent and fails on Windows.
+                        let saved = git::command(
+                            Path::new(&m.folder),
+                            &[
+                                "stash",
+                                "push",
+                                "--include-untracked",
+                                "--message",
+                                &format!("lazysync {}", j.operation_id),
+                            ],
+                            Some(self.settings),
+                        );
+                        // Git can create the stash before failing to clean up locked files.
+                        j.stash_oid = operation_stash(&mut r, &j.operation_id)?;
+                        self.storage.save_journal(&j)?;
+                        if saved.is_err()
+                            || j.stash_oid.is_none()
+                            || git::head(&r) != j.original_head
+                            || git::dirty(&r)?
+                        {
+                            return Err(AppError::new(
+                                "stashFailed",
+                                "Git could not safely save and clear local changes.",
+                                "Close programs using files in this repository. Review the saved stash and recovery backups in your Git client, preserve and reconcile your files, then use Finish Recovery before retrying. Backups remain available.",
+                            ));
+                        }
                     }
                     self.finish_step(&r, &mut j, "fetch")?;
                 }
@@ -567,6 +578,19 @@ pub fn finish_manual_recovery(storage: &Storage) -> Result<()> {
     j.in_flight = false;
     storage.save_journal(&j)
 }
+fn operation_stash(r: &mut Repository, operation_id: &str) -> Result<Option<String>> {
+    let marker = format!(": lazysync {operation_id}");
+    let mut found = None;
+    r.stash_foreach(|_, message, oid| {
+        if message.ends_with(&marker) {
+            found = Some(oid.to_string());
+            return false;
+        }
+        true
+    })?;
+    Ok(found)
+}
+
 fn stash_index(r: &mut Repository, oid: &str) -> Result<Option<usize>> {
     let mut idx = None;
     r.stash_foreach(|i, _, o| {
