@@ -1,5 +1,6 @@
-lazysync 0.2.5 adds resizable windows with saved sizes and clearer Windows folder paths.
+lazysync 0.2.6 adds resizable windows with saved sizes and clearer Windows folder paths.
 
+- The visible resize grip uses a pointer-drag fallback on macOS, where the native grip API is unsupported.
 - Resize from window edges or the monochrome bottom-right grip, including in setup and settings dialogs.
 - Focus the grip and use arrow keys to resize in 16-pixel steps, or Shift + arrows for 64-pixel steps.
 - Compact and Difference checker views remember separate sizes. Sizes save after resizing and when hiding or quitting; the checker stays anchored to the right edge when opened or closed.

@@ -1,4 +1,30 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+async function mockNative(page: Page, mac = false) {
+  await page.addInitScript((mac: boolean) => {
+    if (mac)
+      Object.defineProperty(navigator, 'platform', { value: 'MacIntel' });
+    const scope = window as unknown as {
+      isTauri: boolean;
+      commands: { command: string; args: unknown }[];
+      __TAURI_INTERNALS__: unknown;
+    };
+    scope.isTauri = true;
+    scope.commands = [];
+    scope.__TAURI_INTERNALS__ = {
+      metadata: { currentWindow: { label: 'main' } },
+      transformCallback: () => 1,
+      invoke: async (command: string, args: unknown) => {
+        scope.commands.push({ command, args });
+        if (command === 'plugin:dialog|open')
+          return '\\\\?\\C:\\hard drive\\Scripts';
+        if (command.startsWith('plugin:')) return 0;
+        const modulePath = '/src/lib/preview.ts';
+        const fixture = await import(modulePath);
+        return fixture.callPreview(command, args);
+      },
+    };
+  }, mac);
+}
 test.beforeEach(async ({ page }) => {
   await page.goto('/?preview');
   await expect(
@@ -123,28 +149,7 @@ test('resized flyout and dialogs fill the window and keep the grip reachable', a
 test('native resize commands support mouse, keyboard, dialog sizing, and saving before hide', async ({
   page,
 }) => {
-  await page.addInitScript(() => {
-    const scope = window as unknown as {
-      isTauri: boolean;
-      commands: { command: string; args: unknown }[];
-      __TAURI_INTERNALS__: unknown;
-    };
-    scope.isTauri = true;
-    scope.commands = [];
-    scope.__TAURI_INTERNALS__ = {
-      metadata: { currentWindow: { label: 'main' } },
-      transformCallback: () => 1,
-      invoke: async (command: string, args: unknown) => {
-        scope.commands.push({ command, args });
-        if (command === 'plugin:dialog|open')
-          return '\\\\?\\C:\\hard drive\\Scripts';
-        if (command.startsWith('plugin:')) return 0;
-        const modulePath = '/src/lib/preview.ts';
-        const fixture = await import(modulePath);
-        return fixture.callPreview(command, args);
-      },
-    };
-  });
+  await mockNative(page);
   await page.goto('/');
   const grip = page.getByRole('button', { name: 'Resize window', exact: true });
   await grip.click();
@@ -301,4 +306,60 @@ test('settings, automation, and focus are keyboard accessible', async ({
   await expect(
     page.getByRole('button', { name: 'Settings', exact: true }),
   ).toBeFocused();
+});
+
+test('macOS grip uses captured pointer movement in flyout and settings', async ({
+  page,
+}) => {
+  await mockNative(page, true);
+  await page.goto('/');
+  for (const modal of [false, true]) {
+    if (modal)
+      await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    const grip = modal
+      ? page
+          .getByRole('dialog')
+          .getByRole('button', { name: 'Resize window', exact: true })
+      : page.getByRole('button', { name: 'Resize window', exact: true });
+    const box = (await grip.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      box.x + box.width / 2 - 80,
+      box.y + box.height / 2 - 40,
+      { steps: 4 },
+    );
+    await page.mouse.up();
+  }
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const commands = (
+          window as unknown as {
+            commands: {
+              command: string;
+              args: { width: number; height: number };
+            }[];
+          }
+        ).commands;
+        return commands
+          .filter((c) => c.command === 'resize_window_by')
+          .reduce(
+            (size, c) => ({
+              width: size.width + c.args.width,
+              height: size.height + c.args.height,
+            }),
+            { width: 0, height: 0 },
+          );
+      }),
+    )
+    .toEqual({ width: -160, height: -80 });
+  await expect(page.getByText(/Could not resize/)).toHaveCount(0);
+  expect(
+    await page.evaluate(() =>
+      (window as unknown as { commands: { command: string }[] }).commands.some(
+        (c) => c.command === 'plugin:window|start_resize_dragging',
+      ),
+    ),
+  ).toBe(false);
 });
